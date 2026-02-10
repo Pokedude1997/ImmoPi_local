@@ -1,0 +1,5 @@
+{
+  "name": "ImmoPi Manager",
+  "description": "A comprehensive local real estate management system for landlords running on Raspberry Pi. Features AI-powered document analysis, income/expense tracking, and tax reporting.",
+  "requestFramePermissions": []
+}
