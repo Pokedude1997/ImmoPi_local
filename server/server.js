@@ -5,6 +5,7 @@
  * - Simple password authentication
  * - Automated Google Drive backups
  * - AI document analysis with retry logic and validation
+ * - Google Drive document storage with organized folder structure
  * - Improved error handling and logging
  * 
  * To run this on your Raspberry Pi:
@@ -28,6 +29,7 @@ require('dotenv').config();
 const { login, logout, requireAuth } = require('./auth-middleware');
 const { performBackup, startBackupScheduler } = require('./backup');
 const { validateAndSanitize } = require('./ai-validator');
+const { uploadDocument, getDocumentLink, initializeDriveClient } = require('./drive-storage');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -58,28 +60,56 @@ const db = new sqlite3.Database('./immopi.db', (err) => {
   else console.log('✅ Connected to SQLite database.');
 });
 
-// Initialize Tables (Brief Schema)
+// Initialize Tables
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS properties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
+    name TEXT NOT NULL,
     address TEXT,
     type TEXT,
     notes TEXT
   )`);
   
-  db.run(`CREATE TABLE IF NOT EXISTS transactions (
+  db.run(`CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
+    file_name TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    upload_date TEXT NOT NULL,
+    document_date TEXT,
+    document_type TEXT,
     amount REAL,
     currency TEXT,
-    description TEXT,
-    type TEXT,
     property_id INTEGER,
     category_id INTEGER,
-    document_id INTEGER
+    counterparty_id INTEGER,
+    notes TEXT,
+    google_drive_id TEXT,
+    google_drive_path TEXT,
+    ai_analysis_raw TEXT,
+    FOREIGN KEY (property_id) REFERENCES properties(id)
   )`);
-  // ... Add other tables (documents, categories, etc.)
+  
+  db.run(`CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL,
+    description TEXT,
+    type TEXT NOT NULL,
+    property_id INTEGER,
+    category_id INTEGER,
+    document_id INTEGER,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (document_id) REFERENCES documents(id)
+  )`);
+  
+  db.run(`CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    is_tax_relevant INTEGER DEFAULT 0
+  )`);
 });
 
 // ============================================================================
@@ -147,8 +177,51 @@ app.post('/api/properties', requireAuth, (req, res) => {
   );
 });
 
+// Documents
+app.get('/api/documents', requireAuth, (req, res) => {
+  const query = `
+    SELECT 
+      d.*,
+      p.name as property_name
+    FROM documents d
+    LEFT JOIN properties p ON d.property_id = p.id
+    ORDER BY d.upload_date DESC
+  `;
+  
+  db.all(query, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    // Add Drive link to each document
+    const documentsWithLinks = rows.map(doc => ({
+      ...doc,
+      driveLink: doc.google_drive_id ? getDocumentLink(doc.google_drive_id) : null,
+    }));
+    
+    res.json(documentsWithLinks);
+  });
+});
+
+app.get('/api/documents/:id', requireAuth, (req, res) => {
+  const query = `
+    SELECT 
+      d.*,
+      p.name as property_name
+    FROM documents d
+    LEFT JOIN properties p ON d.property_id = p.id
+    WHERE d.id = ?
+  `;
+  
+  db.get(query, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+    
+    row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
+    res.json(row);
+  });
+});
+
 // ============================================================================
-// AI DOCUMENT ANALYSIS WITH RETRY LOGIC
+// AI DOCUMENT ANALYSIS WITH DRIVE STORAGE
 // ============================================================================
 
 const upload = multer({ dest: uploadsDir });
@@ -183,27 +256,36 @@ function logAIFailure(fileName, errorType, details) {
   fs.appendFileSync(logFile, logEntry);
 }
 
+/**
+ * Upload and analyze document
+ * 1. Analyze with AI
+ * 2. Upload to Google Drive (organized folder structure)
+ * 3. Save metadata and Drive reference to database
+ * 4. Delete local file
+ */
 app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   const fileName = req.file.originalname || req.file.filename;
-  console.log(`\n📄 Analyzing document: ${fileName}`);
+  console.log(`\n📄 Processing document: ${fileName}`);
   
+  let driveFileId = null;
+  let aiData = null;
+  let validationResult = null;
+
   try {
-    // API key must be obtained from process.env.API_KEY
+    // Step 1: AI Analysis
+    console.log('🤖 Step 1: AI Analysis...');
     if (!process.env.API_KEY) {
       throw new Error('API_KEY not configured in environment variables');
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    // Read file and convert to base64
     const fileBuffer = fs.readFileSync(req.file.path);
     const base64Data = fileBuffer.toString('base64');
     
-    // Call Gemini with retry logic
     const response = await retryWithBackoff(async () => {
       return await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview',
@@ -217,7 +299,6 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
       });
     });
 
-    // Parse response
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(response.text);
@@ -225,53 +306,115 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
       throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
     }
 
-    // Validate response
-    const validation = validateAndSanitize(parsedResponse);
+    validationResult = validateAndSanitize(parsedResponse);
     
-    if (!validation.success) {
-      console.error('❌ AI response validation failed:', validation.errors);
+    if (!validationResult.success) {
+      console.error('❌ AI response validation failed:', validationResult.errors);
       logAIFailure(fileName, 'VALIDATION_ERROR', {
-        errors: validation.errors,
-        raw: validation.raw,
+        errors: validationResult.errors,
+        raw: validationResult.raw,
       });
       
-      return res.status(422).json({
-        error: 'AI response validation failed',
-        details: validation.errors,
-        raw: parsedResponse,
-        suggestion: 'Please enter the data manually',
-      });
+      // Continue with upload even if validation fails
+      aiData = parsedResponse;
+    } else {
+      console.log('✅ AI analysis successful');
+      aiData = validationResult.data;
     }
 
-    console.log('✅ Document analyzed successfully');
+    // Step 2: Upload to Google Drive
+    console.log('☁️  Step 2: Uploading to Google Drive...');
+    const propertyId = req.body.propertyId;
+    let propertyName = 'Unassigned';
     
-    // Cleanup uploaded file
+    if (propertyId) {
+      const property = await new Promise((resolve, reject) => {
+        db.get('SELECT name FROM properties WHERE id = ?', [propertyId], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+      if (property) propertyName = property.name;
+    }
+
+    const uploadResult = await uploadDocument({
+      filePath: req.file.path,
+      originalName: fileName,
+      mimeType: req.file.mimetype,
+      propertyName: propertyName,
+      documentType: aiData?.documentType || 'Other',
+      documentDate: aiData?.date,
+    });
+
+    driveFileId = uploadResult.fileId;
+    console.log(`✅ Uploaded to Drive: ${uploadResult.folderPath}`);
+
+    // Step 3: Save to database (only metadata and Drive reference)
+    console.log('💾 Step 3: Saving metadata to database...');
+    const documentId = await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO documents (
+          file_name, original_name, mime_type, upload_date, document_date,
+          document_type, amount, currency, property_id, notes,
+          google_drive_id, google_drive_path, ai_analysis_raw
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uploadResult.fileName,
+          fileName,
+          req.file.mimetype,
+          new Date().toISOString(),
+          aiData?.date || null,
+          aiData?.documentType || 'Other',
+          aiData?.amount || null,
+          aiData?.currency || null,
+          propertyId || null,
+          req.body.notes || null,
+          uploadResult.fileId,
+          uploadResult.folderPath,
+          JSON.stringify(parsedResponse),
+        ],
+        function (err) {
+          if (err) reject(err);
+          else resolve(this.lastID);
+        }
+      );
+    });
+
+    // Step 4: Cleanup local file
+    console.log('🗑️  Step 4: Cleaning up local file...');
     fs.unlinkSync(req.file.path);
+
+    console.log('✅ Document processing complete');
 
     res.json({
       success: true,
-      data: validation.data,
-      aiAnalysisRaw: parsedResponse,
+      documentId: documentId,
+      driveFileId: driveFileId,
+      driveLink: getDocumentLink(driveFileId),
+      folderPath: uploadResult.folderPath,
+      aiData: aiData,
+      validationErrors: validationResult?.success === false ? validationResult.errors : null,
     });
 
   } catch (error) {
-    console.error('❌ AI Analysis failed:', error.message);
+    console.error('❌ Document processing failed:', error.message);
     
-    // Log failure
-    logAIFailure(fileName, 'API_ERROR', {
+    logAIFailure(fileName, 'PROCESSING_ERROR', {
       message: error.message,
       stack: error.stack,
+      driveFileId: driveFileId,
     });
     
-    // Cleanup uploaded file
+    // Cleanup local file
     if (fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
     
     res.status(500).json({
-      error: 'AI Analysis failed',
+      error: 'Document processing failed',
       message: error.message,
-      suggestion: 'Please try again or enter the data manually',
+      suggestion: 'Please try again or contact support',
+      driveFileId: driveFileId, // Return file ID if upload succeeded
     });
   }
 });
@@ -312,8 +455,12 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 // SERVER STARTUP
 // ============================================================================
 
+// Initialize Drive client
+console.log('\n☁️  Initializing Google Drive...');
+initializeDriveClient();
+
 // Start backup scheduler
-console.log('\n📦 Initializing backup system...');
+console.log('📦 Initializing backup system...');
 startBackupScheduler();
 
 app.listen(PORT, () => {
