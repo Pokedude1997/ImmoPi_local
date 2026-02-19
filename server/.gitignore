@@ -1,0 +1,24 @@
+# Environment variables
+.env
+
+# Google credentials
+google-credentials.json
+
+# Database files
+*.db
+*.db-journal
+*.db.backup
+
+# Logs
+logs/
+*.log
+
+# Uploads
+uploads/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
