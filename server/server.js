@@ -1,18 +1,8 @@
 /**
- * ImmoPi Manager - Enhanced Backend Implementation
+ * ImmoPi Manager - Complete Backend API
  * 
- * Features:
- * - Simple password authentication
- * - Automated Google Drive backups
- * - AI document analysis with retry logic and validation
- * - Google Drive document storage with organized folder structure
- * - Improved error handling and logging
- * 
- * To run this on your Raspberry Pi:
- * 1. Initialize a new Node project: `npm init -y`
- * 2. Install dependencies: `npm install express cors sqlite3 dotenv multer googleapis @google/genai bcrypt node-cron zod cookie-parser`
- * 3. Configure .env file with required variables
- * 4. Run: `node server.js`
+ * Full REST API with CRUD operations for all entities
+ * Frontend communicates exclusively through these endpoints
  */
 
 const express = require('express');
@@ -25,51 +15,123 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
-// Import custom modules
 const { login, logout, requireAuth } = require('./auth-middleware');
 const { performBackup, startBackupScheduler } = require('./backup');
 const { validateAndSanitize } = require('./ai-validator');
-const { uploadDocument, getDocumentLink, initializeDriveClient } = require('./drive-storage');
+const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-}));
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Ensure logs directory exists
 const logsDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
-}
-
-// Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+[logsDir, uploadsDir].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
 
-// Database Setup
 const db = new sqlite3.Database('./immopi.db', (err) => {
   if (err) console.error('❌ DB Error:', err.message);
   else console.log('✅ Connected to SQLite database.');
 });
 
-// Initialize Tables
+// Create all tables
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS properties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     address TEXT,
     type TEXT,
+    purchasePrice REAL,
+    purchaseDate TEXT,
+    rentAmount REAL,
+    size REAL,
+    mortgage_loanAmount REAL,
+    mortgage_startDate TEXT,
+    mortgage_interestRate REAL,
+    mortgage_principalRate REAL,
+    mortgage_bankName TEXT,
+    mortgage_paymentTiming TEXT,
     notes TEXT
   )`);
-  
+
+  db.run(`CREATE TABLE IF NOT EXISTS tenants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    firstName TEXT NOT NULL,
+    lastName TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    property_id INTEGER,
+    leaseStart TEXT,
+    leaseEnd TEXT,
+    rentAmount REAL,
+    deposit REAL,
+    notes TEXT,
+    FOREIGN KEY (property_id) REFERENCES properties(id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    isTaxRelevant INTEGER DEFAULT 0
+  )`);
+
+  // Seed default categories if empty
+  db.get('SELECT COUNT(*) as count FROM categories', [], (err, row) => {
+    if (!err && row.count === 0) {
+      const defaultCategories = [
+        ['Rent (Warm)', 'INCOME', 1],
+        ['Rent (Cold)', 'INCOME', 1],
+        ['Side Costs', 'INCOME', 1],
+        ['Maintenance / Repairs', 'EXPENSE', 1],
+        ['Hausgeld (HOA Fee)', 'EXPENSE', 1],
+        ['Electricity', 'EXPENSE', 1],
+        ['Internet/Phone', 'EXPENSE', 1],
+        ['Property Tax', 'EXPENSE', 1],
+        ['Insurance', 'EXPENSE', 1],
+        ['Mortgage Interest', 'EXPENSE', 1],
+        ['Mortgage Principal', 'EXPENSE', 0],
+      ];
+      const stmt = db.prepare('INSERT INTO categories (name, type, isTaxRelevant) VALUES (?, ?, ?)');
+      defaultCategories.forEach(cat => stmt.run(cat));
+      stmt.finalize();
+      console.log('✅ Seeded default categories');
+    }
+  });
+
+  db.run(`CREATE TABLE IF NOT EXISTS counterparties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    contactPerson TEXT,
+    email TEXT,
+    phone TEXT,
+    address TEXT,
+    notes TEXT
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    description TEXT,
+    type TEXT NOT NULL,
+    property_id INTEGER,
+    category_id INTEGER,
+    counterparty_id INTEGER,
+    document_id INTEGER,
+    isAutoGenerated INTEGER DEFAULT 0,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (counterparty_id) REFERENCES counterparties(id),
+    FOREIGN KEY (document_id) REFERENCES documents(id)
+  )`);
+
   db.run(`CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name TEXT NOT NULL,
@@ -89,55 +151,55 @@ db.serialize(() => {
     ai_analysis_raw TEXT,
     FOREIGN KEY (property_id) REFERENCES properties(id)
   )`);
-  
-  db.run(`CREATE TABLE IF NOT EXISTS transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    amount REAL NOT NULL,
-    currency TEXT NOT NULL,
-    description TEXT,
-    type TEXT NOT NULL,
-    property_id INTEGER,
-    category_id INTEGER,
-    document_id INTEGER,
-    FOREIGN KEY (property_id) REFERENCES properties(id),
-    FOREIGN KEY (document_id) REFERENCES documents(id)
-  )`);
-  
-  db.run(`CREATE TABLE IF NOT EXISTS categories (
+
+  db.run(`CREATE TABLE IF NOT EXISTS recurring_payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    is_tax_relevant INTEGER DEFAULT 0
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'EUR',
+    frequency TEXT NOT NULL,
+    startDate TEXT NOT NULL,
+    endDate TEXT,
+    category_id INTEGER,
+    property_id INTEGER,
+    counterparty_id INTEGER,
+    isActive INTEGER DEFAULT 1,
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (counterparty_id) REFERENCES counterparties(id)
   )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    currency TEXT DEFAULT 'EUR',
+    taxYear INTEGER DEFAULT 2026,
+    googleDriveFolderId TEXT
+  )`);
+
+  // Seed default settings
+  db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
+    if (!err && !row) {
+      db.run('INSERT INTO settings (id, currency, taxYear) VALUES (1, "EUR", 2026)');
+    }
+  });
 });
 
 // ============================================================================
-// AUTHENTICATION ROUTES (No auth required)
+// AUTHENTICATION
 // ============================================================================
 
 app.post('/api/auth/login', async (req, res) => {
   const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required' });
   
-  if (!password) {
-    return res.status(400).json({ error: 'Password required' });
-  }
-
   const result = await login(password);
-  
   if (result.success) {
-    // Set secure cookie
     res.cookie('sessionToken', result.token, {
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
       sameSite: 'strict',
     });
-    
-    res.json({
-      success: true,
-      token: result.token,
-      expiresAt: result.expiresAt,
-    });
+    res.json({ success: true, token: result.token, expiresAt: result.expiresAt });
   } else {
     res.status(401).json({ error: result.error });
   }
@@ -155,21 +217,35 @@ app.get('/api/auth/check', requireAuth, (req, res) => {
 });
 
 // ============================================================================
-// PROTECTED API ROUTES (Authentication required)
+// PROPERTIES CRUD
 // ============================================================================
 
-// Properties
 app.get('/api/properties', requireAuth, (req, res) => {
-  db.all("SELECT * FROM properties", [], (err, rows) => {
+  db.all('SELECT * FROM properties', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
+app.get('/api/properties/:id', requireAuth, (req, res) => {
+  db.get('SELECT * FROM properties WHERE id = ?', [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Property not found' });
+    res.json(row);
+  });
+});
+
 app.post('/api/properties', requireAuth, (req, res) => {
-  const { name, address, type, notes } = req.body;
-  db.run(`INSERT INTO properties (name, address, type, notes) VALUES (?,?,?,?)`, 
-    [name, address, type, notes], 
+  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.body;
+  const m = mortgage || {};
+  
+  db.run(
+    `INSERT INTO properties (name, address, type, purchasePrice, purchaseDate, rentAmount, size,
+      mortgage_loanAmount, mortgage_startDate, mortgage_interestRate, mortgage_principalRate,
+      mortgage_bankName, mortgage_paymentTiming, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, address, type, purchasePrice, purchaseDate, rentAmount, size,
+      m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ id: this.lastID });
@@ -177,111 +253,342 @@ app.post('/api/properties', requireAuth, (req, res) => {
   );
 });
 
-// Documents
-app.get('/api/documents', requireAuth, (req, res) => {
-  const query = `
-    SELECT 
-      d.*,
-      p.name as property_name
-    FROM documents d
-    LEFT JOIN properties p ON d.property_id = p.id
-    ORDER BY d.upload_date DESC
-  `;
+app.put('/api/properties/:id', requireAuth, (req, res) => {
+  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.body;
+  const m = mortgage || {};
   
-  db.all(query, [], (err, rows) => {
+  db.run(
+    `UPDATE properties SET name=?, address=?, type=?, purchasePrice=?, purchaseDate=?, rentAmount=?, size=?,
+      mortgage_loanAmount=?, mortgage_startDate=?, mortgage_interestRate=?, mortgage_principalRate=?,
+      mortgage_bankName=?, mortgage_paymentTiming=?, notes=?
+    WHERE id=?`,
+    [name, address, type, purchasePrice, purchaseDate, rentAmount, size,
+      m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Property not found' });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/properties/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM properties WHERE id = ?', [req.params.id], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-    
-    // Add Drive link to each document
-    const documentsWithLinks = rows.map(doc => ({
-      ...doc,
-      driveLink: doc.google_drive_id ? getDocumentLink(doc.google_drive_id) : null,
-    }));
-    
-    res.json(documentsWithLinks);
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// TENANTS CRUD
+// ============================================================================
+
+app.get('/api/tenants', requireAuth, (req, res) => {
+  db.all('SELECT * FROM tenants', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/tenants', requireAuth, (req, res) => {
+  const { firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes } = req.body;
+  db.run(
+    'INSERT INTO tenants (firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/tenants/:id', requireAuth, (req, res) => {
+  const { firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes } = req.body;
+  db.run(
+    'UPDATE tenants SET firstName=?, lastName=?, email=?, phone=?, property_id=?, leaseStart=?, leaseEnd=?, rentAmount=?, deposit=?, notes=? WHERE id=?',
+    [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/tenants/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM tenants WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// CATEGORIES CRUD
+// ============================================================================
+
+app.get('/api/categories', requireAuth, (req, res) => {
+  db.all('SELECT * FROM categories', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/categories', requireAuth, (req, res) => {
+  const { name, type, isTaxRelevant } = req.body;
+  db.run('INSERT INTO categories (name, type, isTaxRelevant) VALUES (?, ?, ?)',
+    [name, type, isTaxRelevant ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/categories/:id', requireAuth, (req, res) => {
+  const { name, type, isTaxRelevant } = req.body;
+  db.run('UPDATE categories SET name=?, type=?, isTaxRelevant=? WHERE id=?',
+    [name, type, isTaxRelevant ? 1 : 0, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/categories/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM categories WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// TRANSACTIONS CRUD
+// ============================================================================
+
+app.get('/api/transactions', requireAuth, (req, res) => {
+  db.all('SELECT * FROM transactions ORDER BY date DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/transactions', requireAuth, (req, res) => {
+  const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
+  db.run(
+    'INSERT INTO transactions (date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [date, amount, currency || 'EUR', description, type, property_id, category_id, counterparty_id, document_id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/transactions/:id', requireAuth, (req, res) => {
+  const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
+  db.run(
+    'UPDATE transactions SET date=?, amount=?, currency=?, description=?, type=?, property_id=?, category_id=?, counterparty_id=?, document_id=? WHERE id=?',
+    [date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/transactions/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// COUNTERPARTIES CRUD
+// ============================================================================
+
+app.get('/api/counterparties', requireAuth, (req, res) => {
+  db.all('SELECT * FROM counterparties', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/counterparties', requireAuth, (req, res) => {
+  const { name, type, contactPerson, email, phone, address, notes } = req.body;
+  db.run(
+    'INSERT INTO counterparties (name, type, contactPerson, email, phone, address, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [name, type, contactPerson, email, phone, address, notes],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/counterparties/:id', requireAuth, (req, res) => {
+  const { name, type, contactPerson, email, phone, address, notes } = req.body;
+  db.run(
+    'UPDATE counterparties SET name=?, type=?, contactPerson=?, email=?, phone=?, address=?, notes=? WHERE id=?',
+    [name, type, contactPerson, email, phone, address, notes, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/counterparties/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM counterparties WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// RECURRING PAYMENTS CRUD
+// ============================================================================
+
+app.get('/api/recurring-payments', requireAuth, (req, res) => {
+  db.all('SELECT * FROM recurring_payments', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/recurring-payments', requireAuth, (req, res) => {
+  const { name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive } = req.body;
+  db.run(
+    'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, amount, currency || 'EUR', frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
+  const { name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive } = req.body;
+  db.run(
+    'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
+    [name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive ? 1 : 0, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM recurring_payments WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+
+app.get('/api/settings', requireAuth, (req, res) => {
+  db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row || { currency: 'EUR', taxYear: 2026, googleDriveFolderId: '' });
+  });
+});
+
+app.put('/api/settings', requireAuth, (req, res) => {
+  const { currency, taxYear, googleDriveFolderId } = req.body;
+  db.run(
+    'UPDATE settings SET currency=?, taxYear=?, googleDriveFolderId=? WHERE id=1',
+    [currency, taxYear, googleDriveFolderId],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+// ============================================================================
+// DOCUMENTS
+// ============================================================================
+
+app.get('/api/documents', requireAuth, (req, res) => {
+  db.all('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id ORDER BY d.upload_date DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows.map(doc => ({ ...doc, driveLink: doc.google_drive_id ? getDocumentLink(doc.google_drive_id) : null })));
   });
 });
 
 app.get('/api/documents/:id', requireAuth, (req, res) => {
-  const query = `
-    SELECT 
-      d.*,
-      p.name as property_name
-    FROM documents d
-    LEFT JOIN properties p ON d.property_id = p.id
-    WHERE d.id = ?
-  `;
-  
-  db.get(query, [req.params.id], (err, row) => {
+  db.get('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id WHERE d.id = ?', [req.params.id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!row) return res.status(404).json({ error: 'Document not found' });
-    
     row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
     res.json(row);
   });
 });
 
-// ============================================================================
-// AI DOCUMENT ANALYSIS WITH DRIVE STORAGE
-// ============================================================================
+app.delete('/api/documents/:id', requireAuth, async (req, res) => {
+  try {
+    const doc = await new Promise((resolve, reject) => {
+      db.get('SELECT google_drive_id FROM documents WHERE id = ?', [req.params.id], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+    // Delete from Google Drive
+    if (doc.google_drive_id) {
+      await deleteDocument(doc.google_drive_id);
+    }
+
+    // Delete from database
+    db.run('DELETE FROM documents WHERE id = ?', [req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 const upload = multer({ dest: uploadsDir });
 
-/**
- * Retry logic for API calls with exponential backoff
- */
+function logAIFailure(fileName, errorType, details) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} | ${fileName} | ${errorType} | ${JSON.stringify(details)}\n`;
+  const logFile = path.join(logsDir, `ai-failures-${new Date().toISOString().split('T')[0]}.log`);
+  fs.appendFileSync(logFile, logEntry);
+}
+
 async function retryWithBackoff(fn, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      if (attempt === maxRetries) {
-        throw error;
-      }
-      
-      const backoffMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-      console.log(`⚠️  Retry attempt ${attempt}/${maxRetries} after ${backoffMs}ms...`);
+      if (attempt === maxRetries) throw error;
+      const backoffMs = Math.pow(2, attempt - 1) * 1000;
+      console.log(`⚠️  Retry ${attempt}/${maxRetries} after ${backoffMs}ms...`);
       await new Promise(resolve => setTimeout(resolve, backoffMs));
     }
   }
 }
 
-/**
- * Log AI analysis failures
- */
-function logAIFailure(fileName, errorType, details) {
-  const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | ${fileName} | ${errorType} | ${JSON.stringify(details)}\n`;
-  
-  const logFile = path.join(logsDir, `ai-failures-${new Date().toISOString().split('T')[0]}.log`);
-  fs.appendFileSync(logFile, logEntry);
-}
-
-/**
- * Upload and analyze document
- * 1. Analyze with AI
- * 2. Upload to Google Drive (organized folder structure)
- * 3. Save metadata and Drive reference to database
- * 4. Delete local file
- */
 app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const fileName = req.file.originalname || req.file.filename;
-  console.log(`\n📄 Processing document: ${fileName}`);
+  console.log(`\n📄 Processing: ${fileName}`);
   
   let driveFileId = null;
-  let aiData = null;
-  let validationResult = null;
 
   try {
-    // Step 1: AI Analysis
-    console.log('🤖 Step 1: AI Analysis...');
-    if (!process.env.API_KEY) {
-      throw new Error('API_KEY not configured in environment variables');
-    }
-
+    // AI Analysis
+    if (!process.env.API_KEY) throw new Error('API_KEY not configured');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const fileBuffer = fs.readFileSync(req.file.path);
     const base64Data = fileBuffer.toString('base64');
@@ -292,41 +599,20 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
         contents: {
           parts: [
             { inlineData: { mimeType: req.file.mimetype, data: base64Data } },
-            { text: "Analyze this document and extract the following fields as JSON: date (ISO format), amount (number), currency (CHF/EUR/USD), documentType (Invoice/Receipt/Contract/Utility Bill/Tax Statement/Other). Return only valid JSON." }
+            { text: "Extract: date (ISO), amount (number), currency (CHF/EUR/USD), documentType (Invoice/Receipt/Contract/Utility Bill/Tax Statement/Other). JSON only." }
           ]
         },
         config: { responseMimeType: "application/json" }
       });
     });
 
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(response.text);
-    } catch (parseError) {
-      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
-    }
+    const parsedResponse = JSON.parse(response.text);
+    const validationResult = validateAndSanitize(parsedResponse);
+    const aiData = validationResult.success ? validationResult.data : parsedResponse;
 
-    validationResult = validateAndSanitize(parsedResponse);
-    
-    if (!validationResult.success) {
-      console.error('❌ AI response validation failed:', validationResult.errors);
-      logAIFailure(fileName, 'VALIDATION_ERROR', {
-        errors: validationResult.errors,
-        raw: validationResult.raw,
-      });
-      
-      // Continue with upload even if validation fails
-      aiData = parsedResponse;
-    } else {
-      console.log('✅ AI analysis successful');
-      aiData = validationResult.data;
-    }
-
-    // Step 2: Upload to Google Drive
-    console.log('☁️  Step 2: Uploading to Google Drive...');
+    // Upload to Drive
     const propertyId = req.body.propertyId;
     let propertyName = 'Unassigned';
-    
     if (propertyId) {
       const property = await new Promise((resolve, reject) => {
         db.get('SELECT name FROM properties WHERE id = ?', [propertyId], (err, row) => {
@@ -341,38 +627,18 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
       filePath: req.file.path,
       originalName: fileName,
       mimeType: req.file.mimetype,
-      propertyName: propertyName,
+      propertyName,
       documentType: aiData?.documentType || 'Other',
       documentDate: aiData?.date,
     });
 
     driveFileId = uploadResult.fileId;
-    console.log(`✅ Uploaded to Drive: ${uploadResult.folderPath}`);
 
-    // Step 3: Save to database (only metadata and Drive reference)
-    console.log('💾 Step 3: Saving metadata to database...');
+    // Save to database
     const documentId = await new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO documents (
-          file_name, original_name, mime_type, upload_date, document_date,
-          document_type, amount, currency, property_id, notes,
-          google_drive_id, google_drive_path, ai_analysis_raw
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          uploadResult.fileName,
-          fileName,
-          req.file.mimetype,
-          new Date().toISOString(),
-          aiData?.date || null,
-          aiData?.documentType || 'Other',
-          aiData?.amount || null,
-          aiData?.currency || null,
-          propertyId || null,
-          req.body.notes || null,
-          uploadResult.fileId,
-          uploadResult.folderPath,
-          JSON.stringify(parsedResponse),
-        ],
+        'INSERT INTO documents (file_name, original_name, mime_type, upload_date, document_date, document_type, amount, currency, property_id, notes, google_drive_id, google_drive_path, ai_analysis_raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [uploadResult.fileName, fileName, req.file.mimetype, new Date().toISOString(), aiData?.date || null, aiData?.documentType || 'Other', aiData?.amount || null, aiData?.currency || null, propertyId || null, req.body.notes || null, uploadResult.fileId, uploadResult.folderPath, JSON.stringify(parsedResponse)],
         function (err) {
           if (err) reject(err);
           else resolve(this.lastID);
@@ -380,98 +646,51 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
       );
     });
 
-    // Step 4: Cleanup local file
-    console.log('🗑️  Step 4: Cleaning up local file...');
     fs.unlinkSync(req.file.path);
-
-    console.log('✅ Document processing complete');
 
     res.json({
       success: true,
-      documentId: documentId,
-      driveFileId: driveFileId,
+      documentId,
+      driveFileId,
       driveLink: getDocumentLink(driveFileId),
       folderPath: uploadResult.folderPath,
-      aiData: aiData,
+      aiData,
       validationErrors: validationResult?.success === false ? validationResult.errors : null,
     });
-
   } catch (error) {
-    console.error('❌ Document processing failed:', error.message);
-    
-    logAIFailure(fileName, 'PROCESSING_ERROR', {
-      message: error.message,
-      stack: error.stack,
-      driveFileId: driveFileId,
-    });
-    
-    // Cleanup local file
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    
-    res.status(500).json({
-      error: 'Document processing failed',
-      message: error.message,
-      suggestion: 'Please try again or contact support',
-      driveFileId: driveFileId, // Return file ID if upload succeeded
-    });
+    logAIFailure(fileName, 'PROCESSING_ERROR', { message: error.message, driveFileId });
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: 'Processing failed', message: error.message, driveFileId });
   }
 });
 
 // ============================================================================
-// BACKUP ROUTES
+// BACKUP
 // ============================================================================
 
 app.post('/api/backup/manual', requireAuth, async (req, res) => {
-  console.log('🔄 Manual backup requested');
-  
   try {
     const result = await performBackup();
-    
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'Backup completed successfully',
-        details: result,
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Backup failed',
-        details: result.error,
-      });
-    }
+    res.json(result.success ? { success: true, message: 'Backup completed', details: result } : { success: false, error: 'Backup failed', details: result.error });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Backup failed',
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: 'Backup failed', message: error.message });
   }
 });
 
 // ============================================================================
-// SERVER STARTUP
+// STARTUP
 // ============================================================================
 
-// Initialize Drive client
-console.log('\n☁️  Initializing Google Drive...');
 initializeDriveClient();
-
-// Start backup scheduler
-console.log('📦 Initializing backup system...');
 startBackupScheduler();
 
 app.listen(PORT, () => {
   console.log(`\n🚀 ImmoPi Server running on http://localhost:${PORT}`);
-  console.log(`📅 Current time: ${new Date().toISOString()}`);
-  console.log(`\n⚡ Ready to accept requests\n`);
+  console.log(`⚡ Ready to accept requests\n`);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('\n🛑 SIGTERM received, closing database...');
+  console.log('\n🛑 Shutting down...');
   db.close();
   process.exit(0);
 });
