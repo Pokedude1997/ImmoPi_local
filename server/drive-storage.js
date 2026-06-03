@@ -8,7 +8,13 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+
+const envPath = path.resolve(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  require('dotenv').config({ path: envPath });
+} else {
+  require('dotenv').config();
+}
 
 const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_DOCUMENTS_FOLDER_ID;
@@ -22,12 +28,16 @@ function initializeDriveClient() {
   if (driveClient) return driveClient;
 
   try {
-    if (!fs.existsSync(CREDENTIALS_PATH)) {
-      console.error(`❌ Google credentials not found at: ${CREDENTIALS_PATH}`);
+    const resolvedCredentialsPath = path.isAbsolute(CREDENTIALS_PATH)
+      ? CREDENTIALS_PATH
+      : path.join(__dirname, CREDENTIALS_PATH);
+
+    if (!fs.existsSync(resolvedCredentialsPath)) {
+      console.error(`❌ Google credentials not found at: ${resolvedCredentialsPath}`);
       return null;
     }
 
-    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+    const credentials = JSON.parse(fs.readFileSync(resolvedCredentialsPath, 'utf8'));
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: [

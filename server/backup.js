@@ -10,7 +10,13 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
-require('dotenv').config();
+
+const envPath = path.resolve(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  require('dotenv').config({ path: envPath });
+} else {
+  require('dotenv').config();
+}
 
 // Configuration
 const DB_PATH = path.join(__dirname, 'immopi.db');
@@ -22,12 +28,16 @@ let driveClient = null;
 
 function initializeDriveClient() {
   try {
-    if (!fs.existsSync(CREDENTIALS_PATH)) {
-      console.error(`❌ Google credentials not found at: ${CREDENTIALS_PATH}`);
+    const resolvedCredentialsPath = path.isAbsolute(CREDENTIALS_PATH)
+      ? CREDENTIALS_PATH
+      : path.join(__dirname, CREDENTIALS_PATH);
+
+    if (!fs.existsSync(resolvedCredentialsPath)) {
+      console.error(`❌ Google credentials not found at: ${resolvedCredentialsPath}`);
       return null;
     }
 
-    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+    const credentials = JSON.parse(fs.readFileSync(resolvedCredentialsPath, 'utf8'));
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive.file'],

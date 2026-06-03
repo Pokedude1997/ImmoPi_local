@@ -13,7 +13,8 @@ const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
 const cookieParser = require('cookie-parser');
-require('dotenv').config();
+const rootEnvPath = path.resolve(__dirname, '../.env');
+require('dotenv').config({ path: rootEnvPath });
 
 const { login, logout, requireAuth } = require('./auth-middleware');
 const { performBackup, startBackupScheduler } = require('./backup');
@@ -23,7 +24,24 @@ const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient }
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowAllOrigins = allowedOrigins.includes('*');
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowAllOrigins || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error(`CORS origin denied: ${origin}`));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 

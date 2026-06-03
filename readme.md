@@ -266,16 +266,21 @@ cd ImmoPi_local
 ### Step 4: Install Dependencies
 
 ```bash
+# Frontend dependencies
+npm install
+
 # Backend dependencies
 cd server
 npm install
-
-# Frontend dependencies
-cd ..
-npm install
 ```
 
-### Step 5: Build Frontend
+### Step 5: Create environment file
+
+```bash
+cp .env.example .env
+```
+
+### Step 6: Build Frontend
 
 ```bash
 npm run build
@@ -335,7 +340,7 @@ chmod 600 google-credentials.json
 ### 3. Environment Variables
 
 ```bash
-cd ~/ImmoPi_local/server
+cd ~/ImmoPi_local
 cp .env.example .env
 nano .env
 ```
@@ -698,7 +703,7 @@ pm2 restart all
 
 **Check password configuration:**
 ```bash
-cat ~/ImmoPi_local/server/.env | grep APP_PASSWORD
+cat ~/ImmoPi_local/.env | grep APP_PASSWORD
 ```
 
 **Test:**
@@ -902,9 +907,6 @@ ImmoPi_local/
 │   ├── backup.js             # Backup automation & scheduling
 │   ├── ai-validator.js       # Zod schemas for AI validation
 │   ├── drive-storage.js      # Google Drive integration
-│   ├── .env                  # Configuration (create from .env.example)
-│   ├── .env.example          # Environment variables template
-│   ├── .gitignore            # Protects secrets
 │   ├── package.json          # Backend dependencies
 │   ├── google-credentials.json  # Service account key (excluded from git)
 │   ├── immopi.db             # SQLite database (created on first run)
@@ -925,6 +927,8 @@ ImmoPi_local/
 ├── components/               # Reusable React components
 ├── App.tsx                   # Main app with routing & auth
 ├── types.ts                  # TypeScript type definitions
+├── .env.example              # Environment variables template
+├── .env                      # Configuration (create from .env.example)
 ├── ecosystem.config.js       # PM2 configuration
 ├── package.json              # Frontend dependencies
 ├── vite.config.ts            # Vite build configuration
@@ -943,7 +947,7 @@ ImmoPi_local/
 3. **Restrict Access:** Keep app on local network only (no port forwarding)
 4. **Secure Credentials:**
    ```bash
-   chmod 600 ~/ImmoPi_local/server/.env
+   chmod 600 ~/ImmoPi_local/.env
    chmod 600 ~/ImmoPi_local/server/google-credentials.json
    ```
 5. **Regular Updates:** Keep system and dependencies updated

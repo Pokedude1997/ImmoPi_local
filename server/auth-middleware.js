@@ -5,7 +5,15 @@
  */
 
 const bcrypt = require('bcrypt');
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+
+const envPath = path.resolve(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  require('dotenv').config({ path: envPath });
+} else {
+  require('dotenv').config();
+}
 
 // Hash the password from environment (on first run)
 const APP_PASSWORD_HASH = process.env.APP_PASSWORD_HASH;
