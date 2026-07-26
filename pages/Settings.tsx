@@ -14,7 +14,7 @@ export const Settings = () => {
     const formData = new FormData(e.currentTarget);
     const newSettings: AppSettings = {
       ...settings,
-      googleDriveFolderId: formData.get('googleDriveFolderId') as string,
+      // googleDriveFolderId: formData.get('googleDriveFolderId') as string,
       taxYear: Number(formData.get('taxYear')),
     };
     db.saveSettings(newSettings);
@@ -70,12 +70,12 @@ export const Settings = () => {
              <p className="text-xs text-slate-500 mb-6 font-medium">
                Identifier for the local or cloud storage directory used for document processing.
              </p>
-             <Input 
+             {/* <Input 
                 name="googleDriveFolderId" 
                 label="Folder ID / Path" 
                 defaultValue={settings.googleDriveFolderId} 
                 placeholder="root-folder-identifier"
-             />
+             /> */}
           </div>
 
           <div className="flex justify-end pt-4">

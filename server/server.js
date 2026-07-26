@@ -9,7 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
-const { GoogleGenAI } = require('@google/genai');
+// const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
 const cookieParser = require('cookie-parser');
@@ -17,9 +17,9 @@ const rootEnvPath = path.resolve(__dirname, '../.env');
 require('dotenv').config({ path: rootEnvPath });
 
 const { login, logout, requireAuth } = require('./auth-middleware');
-const { performBackup, startBackupScheduler } = require('./backup');
-const { validateAndSanitize } = require('./ai-validator');
-const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
+// const { performBackup, startBackupScheduler } = require('./backup');
+// const { validateAndSanitize } = require('./ai-validator');
+// const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -164,9 +164,9 @@ db.serialize(() => {
     category_id INTEGER,
     counterparty_id INTEGER,
     notes TEXT,
-    google_drive_id TEXT,
-    google_drive_path TEXT,
-    ai_analysis_raw TEXT,
+    // google_drive_id TEXT,
+    // google_drive_path TEXT,
+    // ai_analysis_raw TEXT,
     FOREIGN KEY (property_id) REFERENCES properties(id)
   )`);
 
@@ -190,8 +190,8 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     currency TEXT DEFAULT 'EUR',
-    taxYear INTEGER DEFAULT 2026,
-    googleDriveFolderId TEXT
+    taxYear INTEGER DEFAULT 2026
+    // googleDriveFolderId TEXT
   )`);
 
   // Seed default settings
@@ -512,15 +512,15 @@ app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
 app.get('/api/settings', requireAuth, (req, res) => {
   db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(row || { currency: 'EUR', taxYear: 2026, googleDriveFolderId: '' });
+    res.json(row || { currency: 'EUR', taxYear: 2026 /* googleDriveFolderId: '' */ });
   });
 });
 
 app.put('/api/settings', requireAuth, (req, res) => {
-  const { currency, taxYear, googleDriveFolderId } = req.body;
+  const { currency, taxYear /* googleDriveFolderId */ } = req.body;
   db.run(
-    'UPDATE settings SET currency=?, taxYear=?, googleDriveFolderId=? WHERE id=1',
-    [currency, taxYear, googleDriveFolderId],
+    'UPDATE settings SET currency=?, taxYear=? WHERE id=1',
+    [currency, taxYear /* , googleDriveFolderId */],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -535,7 +535,8 @@ app.put('/api/settings', requireAuth, (req, res) => {
 app.get('/api/documents', requireAuth, (req, res) => {
   db.all('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id ORDER BY d.upload_date DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows.map(doc => ({ ...doc, driveLink: doc.google_drive_id ? getDocumentLink(doc.google_drive_id) : null })));
+    // res.json(rows.map(doc => ({ ...doc, driveLink: doc.google_drive_id ? getDocumentLink(doc.google_drive_id) : null })));
+    res.json(rows.map(doc => ({ ...doc, driveLink: null })));
   });
 });
 
@@ -543,14 +544,15 @@ app.get('/api/documents/:id', requireAuth, (req, res) => {
   db.get('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id WHERE d.id = ?', [req.params.id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!row) return res.status(404).json({ error: 'Document not found' });
-    row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
+    // row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
+    row.driveLink = null;
     res.json(row);
   });
 });
 
 app.delete('/api/documents/:id', requireAuth, async (req, res) => {
   try {
-    const doc = await new Promise((resolve, reject) => {
+    /* const doc = await new Promise((resolve, reject) => {
       db.get('SELECT google_drive_id FROM documents WHERE id = ?', [req.params.id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
@@ -562,7 +564,7 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
     // Delete from Google Drive
     if (doc.google_drive_id) {
       await deleteDocument(doc.google_drive_id);
-    }
+    } */
 
     // Delete from database
     db.run('DELETE FROM documents WHERE id = ?', [req.params.id], function(err) {
@@ -576,6 +578,7 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
 
 const upload = multer({ dest: uploadsDir });
 
+/*
 function logAIFailure(fileName, errorType, details) {
   const timestamp = new Date().toISOString();
   const logEntry = `${timestamp} | ${fileName} | ${errorType} | ${JSON.stringify(details)}\n`;
@@ -595,7 +598,9 @@ async function retryWithBackoff(fn, maxRetries = 3) {
     }
   }
 }
+*/
 
+/*
 app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
@@ -681,11 +686,13 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
     res.status(500).json({ error: 'Processing failed', message: error.message, driveFileId });
   }
 });
+*/
 
 // ============================================================================
 // BACKUP
 // ============================================================================
 
+/*
 app.post('/api/backup/manual', requireAuth, async (req, res) => {
   try {
     const result = await performBackup();
@@ -694,13 +701,14 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
     res.status(500).json({ success: false, error: 'Backup failed', message: error.message });
   }
 });
+*/
 
 // ============================================================================
 // STARTUP
 // ============================================================================
 
-initializeDriveClient();
-startBackupScheduler();
+// initializeDriveClient();
+// startBackupScheduler();
 
 app.listen(PORT, () => {
   console.log(`\n🚀 ImmoPi Server running on http://localhost:${PORT}`);

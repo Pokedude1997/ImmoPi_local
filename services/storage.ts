@@ -26,7 +26,7 @@ const DEFAULT_CATEGORIES: Category[] = [
 ];
 
 const DEFAULT_SETTINGS: AppSettings = {
-  googleDriveFolderId: '',
+  // googleDriveFolderId: '',
   currency: 'EUR',
   taxYear: new Date().getFullYear(),
 };

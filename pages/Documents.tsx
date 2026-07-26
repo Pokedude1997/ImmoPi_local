@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
 import { db } from '../services/storage';
-import { analyzeDocumentWithGemini, AIAnalysisResult } from '../services/geminiService';
+// import { analyzeDocumentWithGemini, AIAnalysisResult } from '../services/geminiService';
 import { AppDocument, DocumentType, Property, Category } from '../types';
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
@@ -23,10 +23,11 @@ export const Documents = () => {
     setAnalysisResult(null);
 
     try {
-      if (process.env.API_KEY) {
-        const result = await analyzeDocumentWithGemini(file);
-        setAnalysisResult(result);
-      } else {
+      // Google AI functionality disabled
+      // if (process.env.API_KEY) {
+      //   const result = await analyzeDocumentWithGemini(file);
+      //   setAnalysisResult(result);
+      // } else {
          // Mock for demo if no key env var
          console.warn("No API_KEY in env, using mock data");
          setTimeout(() => {
@@ -66,7 +67,7 @@ export const Documents = () => {
       propertyId: formData.get('propertyId') as string,
       categoryId: formData.get('categoryId') as string,
       notes: formData.get('summary') as string,
-      googleDriveId: 'mock-drive-id-' + Math.random(), // Mock
+      // googleDriveId: 'mock-drive-id-' + Math.random(), // Mock
     };
 
     const savedDoc = db.saveDocument(newDoc);
@@ -181,9 +182,9 @@ export const Documents = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" className="text-xs" onClick={() => alert("In a real app, this would open the Google Drive link: " + doc.googleDriveId)}>
+              {/* <Button variant="ghost" className="text-xs" onClick={() => alert("In a real app, this would open the Google Drive link: " + doc.googleDriveId)}>
                 View Drive
-              </Button>
+              </Button> */}
             </div>
           </Card>
         ))}

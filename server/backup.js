@@ -3,9 +3,11 @@
  * 
  * Backs up SQLite database to Google Drive weekly
  * Requires service account credentials with write-only access to Drive folder
+ * 
+ * COMMENTED OUT - Google Drive backup functionality disabled
  */
 
-const { google } = require('googleapis');
+// const { google } = require('googleapis');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
@@ -20,12 +22,13 @@ if (fs.existsSync(envPath)) {
 
 // Configuration
 const DB_PATH = path.join(__dirname, 'immopi.db');
-const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
-const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
+// const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
+// const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
 // Initialize Google Drive client
-let driveClient = null;
+// let driveClient = null;
 
+/*
 function initializeDriveClient() {
   try {
     const resolvedCredentialsPath = path.isAbsolute(CREDENTIALS_PATH)
@@ -51,10 +54,13 @@ function initializeDriveClient() {
     return null;
   }
 }
+*/
 
 /**
  * Perform database backup and upload to Google Drive
+ * COMMENTED OUT - Google Drive backup functionality disabled
  */
+/*
 async function performBackup() {
   const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
   const backupFileName = `immopi_backup_${timestamp}.db`;
@@ -161,10 +167,13 @@ async function performBackup() {
     };
   }
 }
+*/
 
 /**
  * Schedule automatic weekly backups (Every Sunday at 2:00 AM)
+ * COMMENTED OUT - Google Drive backup functionality disabled
  */
+/*
 function startBackupScheduler() {
   console.log('📅 Backup scheduler started');
   console.log('⏰ Schedule: Every Sunday at 2:00 AM');
@@ -200,3 +209,10 @@ if (require.main === module) {
     }
   });
 }
+*/
+
+// Export empty functions to maintain module compatibility
+module.exports = {
+  performBackup: () => { throw new Error('Google Drive backup disabled'); },
+  startBackupScheduler: () => { console.log('⚠️  Google Drive backup scheduler disabled'); },
+};

@@ -89,8 +89,8 @@ export interface AppDocument {
   categoryId?: EntityId;
   counterpartyId?: EntityId;
   notes?: string;
-  googleDriveId?: string; // Mock ID for now
-  aiAnalysisRaw?: any;
+  // googleDriveId?: string; // Mock ID for now
+  // aiAnalysisRaw?: any;
 }
 
 export interface Transaction {
@@ -121,7 +121,7 @@ export interface RecurringPayment {
 }
 
 export interface AppSettings {
-  googleDriveFolderId: string;
+  // googleDriveFolderId: string;
   currency: string;
   taxYear: number;
 }

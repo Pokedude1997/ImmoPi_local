@@ -3,9 +3,11 @@
  * 
  * Uploads and organizes documents in Google Drive by property, year, and category
  * Returns Drive file ID for database reference
+ * 
+ * COMMENTED OUT - Google Drive functionality disabled
  */
 
-const { google } = require('googleapis');
+// const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
@@ -16,14 +18,16 @@ if (fs.existsSync(envPath)) {
   require('dotenv').config();
 }
 
-const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
-const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_DOCUMENTS_FOLDER_ID;
+// const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
+// const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_DOCUMENTS_FOLDER_ID;
 
-let driveClient = null;
+// let driveClient = null;
 
 /**
  * Initialize Google Drive client
+ * COMMENTED OUT - Google Drive functionality disabled
  */
+/*
 function initializeDriveClient() {
   if (driveClient) return driveClient;
 
@@ -54,13 +58,16 @@ function initializeDriveClient() {
     return null;
   }
 }
+*/
 
 /**
  * Find or create a folder in Google Drive
+ * COMMENTED OUT - Google Drive functionality disabled
  * @param {string} folderName - Name of the folder
  * @param {string} parentId - Parent folder ID (optional)
  * @returns {Promise<string>} - Folder ID
  */
+/*
 async function findOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
   const drive = driveClient || initializeDriveClient();
   if (!drive) throw new Error('Drive client not initialized');
@@ -108,11 +115,13 @@ async function findOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
 
 /**
  * Build folder structure: Root > PropertyName > Year > Category
+ * COMMENTED OUT - Google Drive functionality disabled
  * @param {string} propertyName - Property identifier
  * @param {string} year - Document year (YYYY)
  * @param {string} category - Category name (e.g., "Invoices", "Receipts")
  * @returns {Promise<string>} - Final folder ID
  */
+/*
 async function buildFolderStructure(propertyName, year, category) {
   try {
     // Level 1: Property folder
@@ -133,7 +142,9 @@ async function buildFolderStructure(propertyName, year, category) {
 
 /**
  * Map document type to folder category name
+ * COMMENTED OUT - Google Drive functionality disabled
  */
+/*
 function getCategoryFolder(documentType) {
   const categoryMap = {
     Invoice: 'Invoices',
@@ -148,6 +159,7 @@ function getCategoryFolder(documentType) {
 
 /**
  * Upload document to Google Drive with organized folder structure
+ * COMMENTED OUT - Google Drive functionality disabled
  * @param {Object} options - Upload options
  * @param {string} options.filePath - Local file path
  * @param {string} options.originalName - Original filename
@@ -238,6 +250,7 @@ async function uploadDocument(options) {
 
 /**
  * Get document download URL (requires user to be authenticated)
+ * COMMENTED OUT - Google Drive functionality disabled
  * @param {string} fileId - Google Drive file ID
  * @returns {string} - Web view link
  */
@@ -247,6 +260,7 @@ function getDocumentLink(fileId) {
 
 /**
  * Delete document from Google Drive
+ * COMMENTED OUT - Google Drive functionality disabled
  * @param {string} fileId - Google Drive file ID
  * @returns {Promise<boolean>} - Success status
  */
@@ -266,10 +280,12 @@ async function deleteDocument(fileId) {
   }
 }
 
+// Export empty functions to maintain module compatibility
 module.exports = {
-  initializeDriveClient,
-  uploadDocument,
-  getDocumentLink,
-  deleteDocument,
-  findOrCreateFolder,
+  initializeDriveClient: () => { console.log('⚠️  Google Drive functionality disabled'); return null; },
+  uploadDocument: () => { throw new Error('Google Drive upload disabled'); },
+  getDocumentLink: (fileId) => `https://drive.google.com/file/d/${fileId}/view`,
+  deleteDocument: () => { throw new Error('Google Drive delete disabled'); },
+  findOrCreateFolder: () => { throw new Error('Google Drive folder operations disabled'); },
 };
+*/

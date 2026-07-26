@@ -2,41 +2,45 @@
  * ImmoPi Manager - AI Response Validator
  * 
  * Validates Gemini API responses for document analysis
+ * 
+ * COMMENTED OUT - Google AI functionality disabled
  */
 
-const { z } = require('zod');
+// const { z } = require('zod');
 
-// Define expected AI response schema
-const AIDocumentSchema = z.object({
-  date: z.string().refine(
-    (val) => {
-      // Validate ISO date format or common date formats
-      const isoDate = new Date(val);
-      return !isNaN(isoDate.getTime());
-    },
-    { message: 'Invalid date format - must be a valid date string' }
-  ),
-  amount: z.number().positive({ message: 'Amount must be a positive number' }),
-  currency: z.enum(['CHF', 'EUR', 'USD'], {
-    errorMap: () => ({ message: 'Currency must be CHF, EUR, or USD' })
-  }),
-  documentType: z.enum([
-    'Invoice',
-    'Receipt',
-    'Contract',
-    'Utility Bill',
-    'Tax Statement',
-    'Other'
-  ], {
-    errorMap: () => ({ message: 'Invalid document type' })
-  }),
-}).strict(); // Don't allow extra fields
+// // Define expected AI response schema
+// const AIDocumentSchema = z.object({
+//   date: z.string().refine(
+//     (val) => {
+//       // Validate ISO date format or common date formats
+//       const isoDate = new Date(val);
+//       return !isNaN(isoDate.getTime());
+//     },
+//     { message: 'Invalid date format - must be a valid date string' }
+//   ),
+//   amount: z.number().positive({ message: 'Amount must be a positive number' }),
+//   currency: z.enum(['CHF', 'EUR', 'USD'], {
+//     errorMap: () => ({ message: 'Currency must be CHF, EUR, or USD' })
+//   }),
+//   documentType: z.enum([
+//     'Invoice',
+//     'Receipt',
+//     'Contract',
+//     'Utility Bill',
+//     'Tax Statement',
+//     'Other'
+//   ], {
+//     errorMap: () => ({ message: 'Invalid document type' })
+//   }),
+// }).strict(); // Don't allow extra fields
 
 /**
  * Validate AI response against expected schema
+ * COMMENTED OUT - Google AI functionality disabled
  * @param {object} response - Raw response from Gemini API
  * @returns {object} - Validation result with parsed data or errors
  */
+/*
 function validateAIResponse(response) {
   try {
     const parsed = AIDocumentSchema.parse(response);
@@ -140,4 +144,13 @@ module.exports = {
   sanitizeAIResponse,
   validateAndSanitize,
   AIDocumentSchema,
+};
+*/
+
+// Export empty functions to maintain module compatibility
+module.exports = {
+  validateAIResponse: () => ({ success: false, error: 'AI validation disabled' }),
+  sanitizeAIResponse: (response) => response,
+  validateAndSanitize: () => ({ success: false, error: 'AI validation disabled' }),
+  AIDocumentSchema: null,
 };
