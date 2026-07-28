@@ -1,15 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
-import { db } from '../services/storage';
+import { api } from '../services/api';
 import { Property, PropertyType, MortgageConfig } from '../types';
 import { Building, MapPin, Plus, Trash2, Edit2, Landmark, Info, CheckCircle2, X, TrendingDown } from 'lucide-react';
 
 export const Properties = () => {
-  const [properties, setProperties] = useState<Property[]>(db.getProperties());
+  const [properties, setProperties] = useState<Property[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProp, setEditingProp] = useState<Property | null>(null);
   const [showMortgageFields, setShowMortgageFields] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadProperties();
+  }, []);
 
   useEffect(() => {
     if (editingProp) {
@@ -18,6 +23,18 @@ export const Properties = () => {
       setShowMortgageFields(false);
     }
   }, [editingProp, isModalOpen]);
+
+  const loadProperties = async () => {
+    try {
+      setLoading(true);
+      const props = await api.getProperties();
+      setProperties(props);
+    } catch (error) {
+      console.error('Failed to load properties:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const parseLocalDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split('-').map(Number);
@@ -60,7 +77,7 @@ export const Properties = () => {
     return balance;
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const hasMortgage = formData.get('hasMortgage') === 'on';
@@ -86,16 +103,28 @@ export const Properties = () => {
       updatedProp.mortgage = undefined;
     }
 
-    db.saveProperty(updatedProp);
-    setProperties(db.getProperties());
+    try {
+      if (editingProp?.id) {
+        await api.updateProperty(editingProp.id, updatedProp);
+      } else {
+        await api.createProperty(updatedProp as Omit<Property, 'id'>);
+      }
+      await loadProperties();
+    } catch (error) {
+      console.error('Failed to save property:', error);
+    }
     setIsModalOpen(false);
     setEditingProp(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Delete this property? Historical transactions will be preserved but financing automation will stop.")) {
-      db.deleteProperty(id);
-      setProperties(db.getProperties());
+      try {
+        await api.deleteProperty(id);
+        await loadProperties();
+      } catch (error) {
+        console.error('Failed to delete property:', error);
+      }
     }
   };
 

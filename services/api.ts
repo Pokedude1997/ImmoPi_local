@@ -14,7 +14,8 @@ import {
   Counterparty,
 } from '../types';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+// Use static IP for the Pi server
+const API_BASE_URL = 'http://192.168.1.18:8000/api';
 
 /**
  * Get authentication token from localStorage
@@ -311,6 +312,15 @@ export const api = {
     return apiRequest<AppSettings>('/settings', {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  },
+
+  // ============================================================================
+  // AUTOMATION
+  // ============================================================================
+  async triggerMortgageAutomation(): Promise<{ success: boolean; logs: string[]; count: number; error?: string }> {
+    return apiRequest('/api/automation/run-mortgage', {
+      method: 'POST',
     });
   },
 

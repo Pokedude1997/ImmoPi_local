@@ -215,6 +215,19 @@ db.serialize(() => {
       db.run("INSERT INTO settings (id, currency, taxYear) VALUES (1, 'EUR', 2026)");
     }
   });
+
+  // Automation state table - tracks last run dates
+  db.run(`CREATE TABLE IF NOT EXISTS automation_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    lastMortgageRun TEXT
+  )`);
+
+  // Seed default automation state
+  db.get('SELECT * FROM automation_state WHERE id = 1', [], (err, row) => {
+    if (!err && !row) {
+      db.run("INSERT INTO automation_state (id) VALUES (1)");
+    }
+  });
 });
 
 // ============================================================================
@@ -848,6 +861,20 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
 */
 
 // ============================================================================
+// AUTOMATION
+// ============================================================================
+
+app.post('/api/automation/run-mortgage', requireAuth, async (req, res) => {
+  try {
+    const { runMortgageAutomation } = require('./mortgage-automation');
+    const result = await runMortgageAutomation();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
 // BACKUP
 // ============================================================================
 
@@ -868,6 +895,7 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 
 // initializeDriveClient();
 // startBackupScheduler();
+// startMortgageScheduler();  // Uncomment to enable scheduled mortgage automation
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);

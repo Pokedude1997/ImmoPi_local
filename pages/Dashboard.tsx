@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button } from '../components/ui';
 import { api } from '../services/api';
-import { Transaction, Property, CategoryType, RecurringPayment, Category } from '../types';
+import { Transaction, Property, CategoryType, RecurringPayment } from '../types';
 import { ArrowUpRight, ArrowDownRight, Euro, Activity, AlertCircle, Landmark, RefreshCcw } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
@@ -33,46 +33,52 @@ export const Dashboard = () => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRunningAutomation, setIsRunningAutomation] = useState(false);
 
+  // Load initial data (without running automation)
+  useEffect(() => {
+    const loadData = async () => {
+      setIsRefreshing(true);
+      try {
+        const [props, tx, cats] = await Promise.all([
+          api.getProperties(),
+          api.getTransactions(),
+          api.getCategories()
+        ]);
+        setProperties(props);
+        setTransactions(tx);
+        setCategories(cats);
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    };
+    loadData();
+  }, [year]);
+
+  // Manual automation trigger via API
   const runAutomation = async () => {
-    setIsRefreshing(true);
-    const logs: string[] = [];
+    if (isRunningAutomation) return;
     
+    setIsRunningAutomation(true);
     try {
-      // Get fresh data from API
-      const [props, transactions, categories, recurring] = await Promise.all([
-        api.getProperties(),
-        api.getTransactions(),
-        api.getCategories(),
-        api.getRecurringPayments()
-      ]);
-      
-      setProperties(props);
-      setTransactions(transactions);
-      setCategories(categories);
-      
-      // Process Recurring
-      logs.push(...processRecurringPayments(recurring, year));
-      
-      // Process Mortgages using centralized logic
-      props.forEach(p => {
-        const mortgageLogs = processMortgageTransactions(p, year, categories);
-        logs.push(...mortgageLogs);
-      });
-      
-      if (logs.length > 0) {
-        setAutomationLog(logs);
+      const response = await api.triggerMortgageAutomation();
+      if (response.success) {
+        setAutomationLog(response.logs || []);
+        // Refresh transactions to show new ones
+        const updatedTx = await api.getTransactions();
+        setTransactions(updatedTx);
+      } else {
+        setAutomationLog([`❌ ${response.error || 'Automation failed'}`]);
       }
     } catch (error) {
-      console.error('Failed to load data:', error);
+      setAutomationLog([`❌ ${error.message || 'Automation failed'}`]);
+      console.error('Automation error:', error);
     } finally {
-      setTimeout(() => setIsRefreshing(false), 600);
+      setTimeout(() => setIsRunningAutomation(false), 600);
     }
   };
-
-  useEffect(() => {
-    runAutomation();
-  }, [year]);
 
   const processRecurringPayments = (recurring: RecurringPayment[], currentYear: number) => {
     const today = new Date();
@@ -126,122 +132,6 @@ export const Dashboard = () => {
       api.updateRecurringPayment(r.id, updateBackendPayload)
         .catch(err => console.error('Failed to update recurring payment:', err));
     });
-    return logs;
-  };
-
-  const processMortgageTransactions = (property: Property, currentYear: number, categories: Category[]) => {
-    const logs: string[] = [];
-    
-    if (!property.mortgage || !property.mortgage.startDate) {
-      return logs;
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const startDate = new Date(property.mortgage.startDate);
-    if (isNaN(startDate.getTime())) {
-      return logs;
-    }
-
-    // Find category IDs for mortgage interest and principal
-    const mortgageInterestCategory = categories.find(c => c.name === 'Mortgage Interest');
-    const mortgagePrincipalCategory = categories.find(c => c.name === 'Mortgage Principal');
-    
-    // Fallback to first EXPENSE category if mortgage categories don't exist
-    const defaultExpenseCategory = categories.find(c => c.type === CategoryType.EXPENSE);
-    const interestCategoryId = mortgageInterestCategory?.id || defaultExpenseCategory?.id;
-    const principalCategoryId = mortgagePrincipalCategory?.id || defaultExpenseCategory?.id;
-    
-    if (!interestCategoryId || !principalCategoryId) {
-      logs.push(`⚠️  No mortgage categories found for property ${property.name}`);
-      return logs;
-    }
-
-    // Calculate monthly payment components
-    const annualInterestRate = property.mortgage.interestRate / 100;
-    const annualPrincipalRate = property.mortgage.principalRate / 100;
-    const monthlyInterestAmount = (property.mortgage.loanAmount * annualInterestRate) / 12;
-    const monthlyPrincipalAmount = (property.mortgage.loanAmount * annualPrincipalRate) / 12;
-    const monthlyTotalAmount = monthlyInterestAmount + monthlyPrincipalAmount;
-    
-    const current = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    const yearEnd = new Date(currentYear, 11, 31);
-
-    while (current <= yearEnd) {
-      const paymentDate = property.mortgage.paymentTiming === 'END_OF_MONTH'
-        ? new Date(current.getFullYear(), current.getMonth() + 1, 0)
-        : new Date(current.getFullYear(), current.getMonth(), 1);
-
-      if (paymentDate.getFullYear() === currentYear && paymentDate <= today) {
-        const date = paymentDate.toISOString().split('T')[0];
-        
-        // Check if mortgage transactions already exist for THIS MONTH/Year
-        // Handles both old transactions (with NULL property_id) and new ones
-        // Key: property name in description + month/year ensures uniqueness
-        const paymentMonth = paymentDate.getMonth();
-        const paymentYear = paymentDate.getFullYear();
-        
-        // Find ALL mortgage transactions for this property name and month
-        // This catches both properly linked and orphaned (NULL property_id) transactions
-        const mortgageTransactionsThisMonth = transactions.filter(tx =>
-          tx.isAutoGenerated &&
-          (tx.description?.includes('Mortgage interest') || tx.description?.includes('Mortgage principal')) &&
-          tx.description?.includes(property.name) &&
-          new Date(tx.date).getFullYear() === paymentYear &&
-          new Date(tx.date).getMonth() === paymentMonth
-        );
-        
-        // Check for specific transaction types
-        const hasInterestThisMonth = mortgageTransactionsThisMonth.some(tx => 
-          tx.description?.includes('Mortgage interest')
-        );
-        const hasPrincipalThisMonth = mortgageTransactionsThisMonth.some(tx => 
-          tx.description?.includes('Mortgage principal')
-        );
-
-        if (!hasInterestThisMonth) {
-          // Map frontend camelCase field names to backend snake_case
-          const interestBackendPayload = {
-            date,
-            amount: Number(monthlyInterestAmount.toFixed(2)),
-            currency: 'EUR',
-            description: `Mortgage interest for ${property.name}`,
-            type: CategoryType.EXPENSE,
-            property_id: property.id,
-            category_id: interestCategoryId,
-            counterparty_id: null,
-            document_id: null,
-            isAutoGenerated: true,
-          };
-          api.createTransaction(interestBackendPayload)
-            .catch(err => console.error('Failed to create mortgage interest transaction:', err));
-          logs.push(`Mortgage interest created for ${property.name} on ${date}`);
-        }
-        
-        if (!hasPrincipalThisMonth) {
-          // Map frontend camelCase field names to backend snake_case
-          const principalBackendPayload = {
-            date,
-            amount: Number(monthlyPrincipalAmount.toFixed(2)),
-            currency: 'EUR',
-            description: `Mortgage principal for ${property.name}`,
-            type: CategoryType.EXPENSE,
-            property_id: property.id,
-            category_id: principalCategoryId,
-            counterparty_id: null,
-            document_id: null,
-            isAutoGenerated: true,
-          };
-          api.createTransaction(principalBackendPayload)
-            .catch(err => console.error('Failed to create mortgage principal transaction:', err));
-          logs.push(`Mortgage principal created for ${property.name} on ${date}`);
-        }
-      }
-      
-      current.setMonth(current.getMonth() + 1);
-    }
-    
     return logs;
   };
 
@@ -300,9 +190,9 @@ export const Dashboard = () => {
           <p className="text-slate-500 text-sm font-medium">Real-time Performance Analysis for {year}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => runAutomation()} loading={isRefreshing} className="bg-white">
-            <RefreshCcw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh Data
+          <Button variant="secondary" onClick={() => runAutomation()} loading={isRunningAutomation} className="bg-white">
+            <RefreshCcw className={`w-4 h-4 mr-2 ${isRunningAutomation ? 'animate-spin' : ''}`} />
+            Run Mortgage Automation
           </Button>
           <select 
             value={year} 
@@ -324,7 +214,9 @@ export const Dashboard = () => {
           <div className="flex-1">
             <h4 className="text-sm font-bold text-emerald-900">Automation Summary</h4>
             <p className="text-xs text-emerald-700 leading-relaxed mt-1">
-              Synchronized {automationLog.length} scheduled transactions, including interest and principal splits.
+              {automationLog[0]?.includes('already ran') 
+                ? automationLog[0] 
+                : `Synchronized ${automationLog.length} scheduled transactions, including interest and principal splits.`}
             </p>
           </div>
           <button onClick={() => setAutomationLog([])} className="p-2 hover:bg-emerald-100 rounded-lg transition-colors text-emerald-400">

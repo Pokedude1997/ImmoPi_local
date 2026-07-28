@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
 import { api } from '../services/api';
 import { RecurringPayment, CategoryType, Property, Category } from '../types';
-import { Plus, Trash2, Calendar, RefreshCw, Clock } from 'lucide-react';
+import { Plus, Trash2, Calendar, RefreshCw, Clock, Pencil, X, CheckCircle2, Loader2 } from 'lucide-react';
 
 export const RecurringPayments = () => {
   const [payments, setPayments] = useState<RecurringPayment[]>([]);
@@ -10,6 +10,12 @@ export const RecurringPayments = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Edit state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<RecurringPayment | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -113,6 +119,71 @@ export const RecurringPayments = () => {
     }
   };
 
+  // Open edit modal for a recurring payment
+  const handleStartEdit = (payment: RecurringPayment) => {
+    setEditingPayment(payment);
+    setIsEditModalOpen(true);
+    setError(null);
+  };
+
+  // Close edit modal
+  const handleCancelEdit = () => {
+    setEditingPayment(null);
+    setIsEditModalOpen(false);
+    setError(null);
+  };
+
+  // Save edited recurring payment
+  const handleSaveEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingPayment) return;
+
+    const formData = new FormData(e.currentTarget);
+    const catId = formData.get('categoryId') as string;
+    const cat = categories.find(c => c.id === catId);
+
+    setSaving(editingPayment.id);
+    try {
+      const updatedPayment: RecurringPayment = {
+        ...editingPayment,
+        name: formData.get('name') as string,
+        type: cat?.type || editingPayment.type,
+        propertyId: formData.get('propertyId') as string,
+        categoryId: catId,
+        amount: Number(formData.get('amount')),
+        frequency: formData.get('frequency') as any,
+        startDate: formData.get('startDate') as string,
+        nextDueDate: formData.get('nextDueDate') as string || formData.get('startDate') as string,
+        active: formData.get('active') ? true : editingPayment.active,
+      };
+
+      // Map frontend field names to backend expectations
+      const backendPayload = {
+        name: updatedPayment.name,
+        type: updatedPayment.type,
+        amount: updatedPayment.amount,
+        currency: 'EUR',
+        frequency: updatedPayment.frequency,
+        startDate: updatedPayment.startDate,
+        nextDueDate: updatedPayment.nextDueDate,
+        endDate: null,
+        isActive: updatedPayment.active ? 1 : 0,
+        category_id: updatedPayment.categoryId,
+        property_id: updatedPayment.propertyId,
+        counterparty_id: null
+      };
+      
+      await api.updateRecurringPayment(editingPayment.id, backendPayload);
+      const updatedPayments = await api.getRecurringPayments();
+      setPayments(updatedPayments);
+      handleCancelEdit();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save changes');
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -152,10 +223,13 @@ export const RecurringPayments = () => {
                   <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">Amount per cycle</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="ghost" className="text-xs" onClick={() => toggleStatus(p)}>
+                  <Button variant="ghost" className="text-xs" onClick={() => handleStartEdit(p)} title="Edit">
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" className="text-xs" onClick={() => toggleStatus(p)} disabled={saving !== null}>
                     {p.active ? 'Pause' : 'Activate'}
                   </Button>
-                  <button onClick={() => handleDelete(p.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors">
+                  <button onClick={() => handleDelete(p.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors" disabled={saving !== null}>
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
@@ -202,6 +276,76 @@ export const RecurringPayments = () => {
               <div className="flex justify-end gap-3 pt-6 mt-4 border-t">
                 <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
                 <Button type="submit">Create Schedule</Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {isEditModalOpen && editingPayment && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-lg p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Edit Payment Schedule</h2>
+              <button onClick={handleCancelEdit} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            
+            {error && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 mb-4">
+                {error}
+                <button onClick={() => setError(null)} className="ml-auto hover:text-rose-700">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            
+            <form onSubmit={handleSaveEdit} className="space-y-5">
+              <Input name="name" label="Plan Name" defaultValue={editingPayment.name} required />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Input name="amount" type="number" step="0.01" label="Amount" defaultValue={editingPayment.amount} required />
+                <Select name="frequency" label="Frequency" defaultValue={editingPayment.frequency}>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="QUARTERLY">Quarterly</option>
+                  <option value="YEARLY">Yearly</option>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Select name="categoryId" label="Category" defaultValue={editingPayment.categoryId} required>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
+                </Select>
+                <Select name="propertyId" label="Property" defaultValue={editingPayment.propertyId} required>
+                  {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+
+              <Input name="startDate" type="date" label="Start Date" defaultValue={editingPayment.startDate} required />
+              <Input name="nextDueDate" type="date" label="Next Due Date" defaultValue={editingPayment.nextDueDate || editingPayment.startDate} required />
+              
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="active"
+                    defaultChecked={editingPayment.active}
+                    className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-slate-700">Active</span>
+                </label>
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-6 mt-4 border-t">
+                <Button type="button" variant="secondary" onClick={handleCancelEdit} disabled={saving !== null}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saving !== null}>
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                  Save Changes
+                </Button>
               </div>
             </form>
           </Card>

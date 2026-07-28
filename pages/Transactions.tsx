@@ -1,26 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
-import { db } from '../services/storage';
-import { Transaction, CategoryType } from '../types';
+import { api } from '../services/api';
+import { Transaction, CategoryType, Property, Category } from '../types';
 import { Plus, Download, Search, Trash2, X, Calendar, Activity } from 'lucide-react';
 
 export const Transactions = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>(db.getTransactions());
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [filter, setFilter] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const properties = db.getProperties();
-  const categories = db.getCategories();
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [tx, props, cats] = await Promise.all([
+          api.getTransactions(),
+          api.getProperties(),
+          api.getCategories()
+        ]);
+        setTransactions(tx);
+        setProperties(props);
+        setCategories(cats);
+      } catch (error) {
+        console.error('Failed to load transactions data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const filtered = transactions.filter(t => 
     t.description.toLowerCase().includes(filter.toLowerCase()) || 
     t.amount.toString().includes(filter)
   ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Delete this transaction?")) {
-      db.deleteTransaction(id);
-      setTransactions(db.getTransactions());
+      try {
+        await api.deleteTransaction(id);
+        setTransactions(transactions.filter(t => t.id !== id));
+      } catch (error) {
+        console.error('Failed to delete transaction:', error);
+      }
     }
   };
 
@@ -49,23 +74,28 @@ export const Transactions = () => {
     document.body.removeChild(link);
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const catId = formData.get('categoryId') as string;
     const cat = categories.find(c => c.id === catId);
 
-    db.saveTransaction({
-      date: formData.get('date') as string,
-      amount: Number(formData.get('amount')),
-      currency: formData.get('currency') as string,
-      description: formData.get('description') as string,
-      categoryId: catId,
-      type: cat?.type || CategoryType.EXPENSE,
-      propertyId: formData.get('propertyId') as string,
-    });
-    setTransactions(db.getTransactions());
-    setIsModalOpen(false);
+    try {
+      await api.createTransaction({
+        date: formData.get('date') as string,
+        amount: Number(formData.get('amount')),
+        currency: formData.get('currency') as string,
+        description: formData.get('description') as string,
+        categoryId: catId,
+        type: cat?.type || CategoryType.EXPENSE,
+        propertyId: formData.get('propertyId') as string,
+      });
+      const updatedTx = await api.getTransactions();
+      setTransactions(updatedTx);
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Failed to create transaction:', error);
+    }
   };
 
   return (
