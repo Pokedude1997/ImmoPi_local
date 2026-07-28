@@ -1,17 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
-import { db } from '../services/storage';
-import { RecurringPayment, CategoryType } from '../types';
+import { api } from '../services/api';
+import { RecurringPayment, CategoryType, Property, Category } from '../types';
 import { Plus, Trash2, Calendar, RefreshCw, Clock } from 'lucide-react';
 
 export const RecurringPayments = () => {
-  const [payments, setPayments] = useState<RecurringPayment[]>(db.getRecurringPayments());
+  const [payments, setPayments] = useState<RecurringPayment[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const properties = db.getProperties();
-  const categories = db.getCategories();
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [recurring, props, cats] = await Promise.all([
+          api.getRecurringPayments(),
+          api.getProperties(),
+          api.getCategories()
+        ]);
+        setPayments(recurring);
+        setProperties(props);
+        setCategories(cats);
+      } catch (error) {
+        console.error('Failed to load recurring payments data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const catId = formData.get('categoryId') as string;
@@ -29,21 +50,36 @@ export const RecurringPayments = () => {
       active: true,
     };
 
-    db.saveRecurringPayment(newPayment);
-    setPayments(db.getRecurringPayments());
+    try {
+      await api.createRecurringPayment(newPayment);
+      const updatedPayments = await api.getRecurringPayments();
+      setPayments(updatedPayments);
+    } catch (error) {
+      console.error('Failed to create recurring payment:', error);
+    }
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Delete this recurring payment plan?")) {
-      db.deleteRecurringPayment(id);
-      setPayments(db.getRecurringPayments());
+      try {
+        await api.deleteRecurringPayment(id);
+        const updatedPayments = await api.getRecurringPayments();
+        setPayments(updatedPayments);
+      } catch (error) {
+        console.error('Failed to delete recurring payment:', error);
+      }
     }
   };
 
-  const toggleStatus = (p: RecurringPayment) => {
-    db.saveRecurringPayment({ ...p, active: !p.active });
-    setPayments(db.getRecurringPayments());
+  const toggleStatus = async (p: RecurringPayment) => {
+    try {
+      await api.updateRecurringPayment(p.id, { ...p, active: !p.active });
+      const updatedPayments = await api.getRecurringPayments();
+      setPayments(updatedPayments);
+    } catch (error) {
+      console.error('Failed to toggle recurring payment status:', error);
+    }
   };
 
   return (

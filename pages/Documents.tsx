@@ -1,19 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
+import { api } from '../services/api';
 import { db } from '../services/storage';
 // import { analyzeDocumentWithGemini, AIAnalysisResult } from '../services/geminiService';
-import { AppDocument, DocumentType, Property, Category } from '../types';
+import { AppDocument, DocumentType, Property, Category, CategoryType } from '../types';
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
+interface AIAnalysisResult {
+  documentType: DocumentType;
+  date: string;
+  amount: number;
+  currency: string;
+  counterpartyName: string;
+  summary: string;
+  suggestedCategoryName: string;
+}
+
 export const Documents = () => {
-  const [documents, setDocuments] = useState<AppDocument[]>(db.getDocuments());
+  const [documents, setDocuments] = useState<AppDocument[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [showReview, setShowReview] = useState(false);
-  
-  const properties = db.getProperties();
-  const categories = db.getCategories();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [docs, props, cats] = await Promise.all([
+          api.getDocuments(),
+          api.getProperties(),
+          api.getCategories()
+        ]);
+        setDocuments(docs);
+        setProperties(props);
+        setCategories(cats);
+      } catch (error) {
+        console.error('Failed to load documents data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -41,7 +73,7 @@ export const Documents = () => {
             suggestedCategoryName: 'Uncategorized'
           });
         }, 1500);
-      }
+      // }
     } catch (err) {
       alert("AI Analysis failed. Please check your internet connection.");
     }
@@ -50,7 +82,7 @@ export const Documents = () => {
     setShowReview(true);
   };
 
-  const handleSaveDocument = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveDocument = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
@@ -74,8 +106,9 @@ export const Documents = () => {
     
     // Auto-create transaction option? For now just save doc.
     if (confirm("Document saved! Do you want to create a linked Transaction automatically?")) {
-      db.saveTransaction({
-        type: categories.find(c => c.id === newDoc.categoryId)?.type || 'Expense' as any,
+      const selectedCategory = categories.find(c => c.id === newDoc.categoryId);
+      await api.createTransaction({
+        type: selectedCategory?.type || CategoryType.EXPENSE,
         propertyId: newDoc.propertyId || properties[0]?.id || '',
         categoryId: newDoc.categoryId || categories[0].id,
         amount: newDoc.amount || 0,
@@ -86,7 +119,9 @@ export const Documents = () => {
       });
     }
 
-    setDocuments(db.getDocuments());
+    const updatedDocs = await api.getDocuments();
+    setDocuments(updatedDocs);
+
     setShowReview(false);
     setCurrentFile(null);
     setAnalysisResult(null);

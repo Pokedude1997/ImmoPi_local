@@ -45,6 +45,24 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
+// Serve static files from root directory for frontend, but exclude /api routes
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next(); // Skip static files for API routes
+  }
+  express.static(path.resolve(__dirname, '..'))(req, res, next);
+});
+
+// Handle root route by serving index.html
+app.get('/', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'index.html'));
+});
+
+// Serve index.tsx as well since it's referenced in index.html
+app.get('/index.tsx', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'index.tsx'));
+});
+
 const logsDir = path.join(__dirname, 'logs');
 const uploadsDir = path.join(__dirname, 'uploads');
 [logsDir, uploadsDir].forEach(dir => {
@@ -164,9 +182,6 @@ db.serialize(() => {
     category_id INTEGER,
     counterparty_id INTEGER,
     notes TEXT,
-    // google_drive_id TEXT,
-    // google_drive_path TEXT,
-    // ai_analysis_raw TEXT,
     FOREIGN KEY (property_id) REFERENCES properties(id)
   )`);
 
@@ -191,13 +206,12 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY CHECK (id = 1),
     currency TEXT DEFAULT 'EUR',
     taxYear INTEGER DEFAULT 2026
-    // googleDriveFolderId TEXT
   )`);
 
   // Seed default settings
   db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
     if (!err && !row) {
-      db.run('INSERT INTO settings (id, currency, taxYear) VALUES (1, "EUR", 2026)');
+      db.run("INSERT INTO settings (id, currency, taxYear) VALUES (1, 'EUR', 2026)");
     }
   });
 });
@@ -373,10 +387,30 @@ app.put('/api/categories/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/categories/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM categories WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true });
-  });
+  const categoryId = req.params.id;
+
+  // Check if category is in use in any related tables
+  db.get(
+    'SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?) + ' +
+    '(SELECT COUNT(*) FROM recurring_payments WHERE category_id = ?) + ' +
+    '(SELECT COUNT(*) FROM documents WHERE category_id = ?) as totalUses',
+    [categoryId, categoryId, categoryId],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (row.totalUses > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete category: it is used in existing transactions, recurring payments, or documents'
+        });
+      }
+
+      db.run('DELETE FROM categories WHERE id = ?', [categoryId], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Category not found' });
+        res.json({ success: true });
+      });
+    }
+  );
 });
 
 // ============================================================================
@@ -710,8 +744,9 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 // initializeDriveClient();
 // startBackupScheduler();
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 ImmoPi Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);
+  console.log(`🌐 Accessible from any device on the local network`);
   console.log(`⚡ Ready to accept requests\n`);
 });
 

@@ -1,18 +1,56 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, Button, Select } from '../components/ui';
-import { db } from '../services/storage';
-import { CategoryType } from '../types';
+import { api } from '../services/api';
+import { CategoryType, Property, Category, Transaction, AppSettings } from '../types';
 import { FileBarChart2, Download, Table, Filter, AlertCircle, Calendar, Building } from 'lucide-react';
 
 export const Reports = () => {
-  const properties = db.getProperties();
-  const categories = db.getCategories();
-  const transactions = db.getTransactions();
-  const settings = db.getSettings();
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({ currency: 'EUR', taxYear: new Date().getFullYear() });
+  const [loading, setLoading] = useState(true);
 
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>(properties[0]?.id || '');
-  const [selectedYear, setSelectedYear] = useState<number>(settings.taxYear);
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [props, cats, tx, set] = await Promise.all([
+          api.getProperties(),
+          api.getCategories(),
+          api.getTransactions(),
+          api.getSettings()
+        ]);
+        setProperties(props);
+        setCategories(cats);
+        setTransactions(tx);
+        setSettings(set);
+      } catch (error) {
+        console.error('Failed to load reports data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
+  // Update selected property when properties load
+  useEffect(() => {
+    if (properties.length > 0 && !selectedPropertyId) {
+      setSelectedPropertyId(properties[0]?.id || '');
+    }
+  }, [properties, selectedPropertyId]);
+
+  // Update selected year when settings load
+  useEffect(() => {
+    if (settings.taxYear && selectedYear === new Date().getFullYear()) {
+      setSelectedYear(settings.taxYear);
+    }
+  }, [settings.taxYear]);
 
   // Available years based on transactions or just a standard range
   const years = useMemo(() => {
