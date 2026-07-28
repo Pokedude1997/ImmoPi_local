@@ -193,6 +193,7 @@ db.serialize(() => {
     frequency TEXT NOT NULL,
     startDate TEXT NOT NULL,
     endDate TEXT,
+    nextDueDate TEXT,
     category_id INTEGER,
     property_id INTEGER,
     counterparty_id INTEGER,
@@ -501,18 +502,47 @@ app.delete('/api/counterparties/:id', requireAuth, (req, res) => {
 // RECURRING PAYMENTS CRUD
 // ============================================================================
 
+// Helper function to ensure valid date string
+function ensureValidDate(dateValue) {
+  if (!dateValue || dateValue === 'null' || dateValue === 'undefined') {
+    return new Date().toISOString().split('T')[0];
+  }
+  const date = new Date(dateValue);
+  if (isNaN(date.getTime())) {
+    return new Date().toISOString().split('T')[0];
+  }
+  return dateValue;
+}
+
 app.get('/api/recurring-payments', requireAuth, (req, res) => {
   db.all('SELECT * FROM recurring_payments', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    // Map database snake_case field names to frontend camelCase expectations
+    const mappedRows = rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      amount: row.amount,
+      currency: row.currency || 'EUR',
+      frequency: row.frequency,
+      startDate: ensureValidDate(row.startDate),
+      endDate: row.endDate ? ensureValidDate(row.endDate) : null,
+      nextDueDate: ensureValidDate(row.nextDueDate) || ensureValidDate(row.startDate),
+      active: Boolean(row.isActive),
+      // Map snake_case foreign keys to camelCase
+      propertyId: row.property_id,
+      categoryId: row.category_id,
+      counterpartyId: row.counterparty_id,
+    }));
+    res.json(mappedRows);
   });
 });
 
 app.post('/api/recurring-payments', requireAuth, (req, res) => {
-  const { name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive } = req.body;
+  const { name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive } = req.body;
   db.run(
-    'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [name, amount, currency || 'EUR', frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive ? 1 : 0],
+    'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, amount, currency || 'EUR', frequency, startDate, endDate, nextDueDate || startDate, category_id, property_id, counterparty_id, isActive ? 1 : 0],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ id: this.lastID });
@@ -521,10 +551,12 @@ app.post('/api/recurring-payments', requireAuth, (req, res) => {
 });
 
 app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
-  const { name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive } = req.body;
+  const { name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive, active } = req.body;
+  // Support both isActive and active field names
+  const isActiveValue = isActive !== undefined ? isActive : active;
   db.run(
-    'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
-    [name, amount, currency, frequency, startDate, endDate, category_id, property_id, counterparty_id, isActive ? 1 : 0, req.params.id],
+    'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, nextDueDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
+    [name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActiveValue ? 1 : 0, req.params.id],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });

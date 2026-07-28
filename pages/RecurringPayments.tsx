@@ -51,7 +51,23 @@ export const RecurringPayments = () => {
     };
 
     try {
-      await api.createRecurringPayment(newPayment);
+      // Map frontend field names to backend expectations
+      const backendPayload = {
+        name: newPayment.name,
+        type: newPayment.type,
+        amount: newPayment.amount,
+        currency: 'EUR',
+        frequency: newPayment.frequency,
+        startDate: newPayment.startDate,
+        nextDueDate: newPayment.nextDueDate,
+        endDate: null,
+        isActive: newPayment.active ? 1 : 0,
+        category_id: newPayment.categoryId,
+        property_id: newPayment.propertyId,
+        counterparty_id: null
+      };
+      
+      await api.createRecurringPayment(backendPayload);
       const updatedPayments = await api.getRecurringPayments();
       setPayments(updatedPayments);
     } catch (error) {
@@ -74,7 +90,22 @@ export const RecurringPayments = () => {
 
   const toggleStatus = async (p: RecurringPayment) => {
     try {
-      await api.updateRecurringPayment(p.id, { ...p, active: !p.active });
+      // Map frontend field names to backend expectations
+      // Frontend uses: active, propertyId, categoryId, counterpartyId
+      // Backend expects: isActive, property_id, category_id, counterparty_id
+      const backendPayload = {
+        ...p,
+        isActive: !p.active,
+        property_id: p.propertyId,
+        category_id: p.categoryId,
+        counterparty_id: p.counterpartyId
+      };
+      delete backendPayload.active;
+      delete backendPayload.propertyId;
+      delete backendPayload.categoryId;
+      delete backendPayload.counterpartyId;
+      
+      await api.updateRecurringPayment(p.id, backendPayload);
       const updatedPayments = await api.getRecurringPayments();
       setPayments(updatedPayments);
     } catch (error) {
