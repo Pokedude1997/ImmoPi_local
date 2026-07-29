@@ -192,7 +192,7 @@ export const Dashboard = () => {
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => runAutomation()} loading={isRunningAutomation} className="bg-white">
             <RefreshCcw className={`w-4 h-4 mr-2 ${isRunningAutomation ? 'animate-spin' : ''}`} />
-            Run Mortgage Automation
+            Refresh
           </Button>
           <select 
             value={year} 

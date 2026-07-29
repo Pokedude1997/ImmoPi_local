@@ -895,7 +895,7 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 
 // initializeDriveClient();
 // startBackupScheduler();
-// startMortgageScheduler();  // Uncomment to enable scheduled mortgage automation
+startMortgageScheduler();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);
