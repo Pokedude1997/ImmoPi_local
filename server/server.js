@@ -441,36 +441,52 @@ app.get('/api/tenants', requireAuth, (req, res) => {
       logError(err, { context: 'GET /api/tenants', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    // Normalize IDs to strings and map foreign keys
+    // Map database schema to frontend schema
     const mappedRows = rows.map(row => ({
-      ...row,
       id: String(row.id),
+      name: row.firstName && row.lastName ? `${row.firstName} ${row.lastName}`.trim() : (row.firstName || row.lastName || ''),
       propertyId: row.property_id ? String(row.property_id) : null,
+      startDate: row.leaseStart || null,
+      endDate: row.leaseEnd || null,
+      isCurrent: row.isCurrent !== undefined ? Boolean(row.isCurrent) : true,
+      notes: row.notes || null,
     }));
     res.json(mappedRows);
   });
 });
 
 app.post('/api/tenants', requireAuth, (req, res) => {
-  const { firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes } = req.body;
+  const { name, propertyId, startDate, endDate, isCurrent, notes } = req.body;
+  
+  // Split name into first and last (simple split on first space)
+  const nameParts = name ? name.trim().split(/\s+/, 2) : [];
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts[1] || '';
+  
   db.run(
-    'INSERT INTO tenants (firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes],
+    'INSERT INTO tenants (firstName, lastName, property_id, leaseStart, leaseEnd, isCurrent, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [firstName, lastName, propertyId, startDate, endDate, isCurrent ? 1 : 0, notes],
     function(err) {
       if (err) {
         logError(err, { context: 'POST /api/tenants', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
-      res.json({ id: this.lastID });
+      res.json({ id: String(this.lastID) });
     }
   );
 });
 
 app.put('/api/tenants/:id', requireAuth, (req, res) => {
-  const { firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes } = req.body;
+  const { name, propertyId, startDate, endDate, isCurrent, notes } = req.body;
+  
+  // Split name into first and last (simple split on first space)
+  const nameParts = name ? name.trim().split(/\s+/, 2) : [];
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts[1] || '';
+  
   db.run(
-    'UPDATE tenants SET firstName=?, lastName=?, email=?, phone=?, property_id=?, leaseStart=?, leaseEnd=?, rentAmount=?, deposit=?, notes=? WHERE id=?',
-    [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes, req.params.id],
+    'UPDATE tenants SET firstName=?, lastName=?, property_id=?, leaseStart=?, leaseEnd=?, isCurrent=?, notes=? WHERE id=?',
+    [firstName, lastName, propertyId, startDate, endDate, isCurrent ? 1 : 0, notes, req.params.id],
     function(err) {
       if (err) {
         logError(err, { context: 'PUT /api/tenants/:id', tenantId: req.params.id, user: req.user?.id });
