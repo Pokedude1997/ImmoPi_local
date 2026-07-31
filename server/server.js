@@ -270,6 +270,45 @@ db.serialize(() => {
       db.run("INSERT INTO automation_state (id) VALUES (1)");
     }
   });
+
+  // Add isCurrent column to tenants table if it doesn't exist
+  db.run(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS isCurrent INTEGER DEFAULT 1`);
+
+  // Tenant contracts table for rent management
+  db.run(`CREATE TABLE IF NOT EXISTS tenant_contracts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    property_id INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    cold_rent REAL NOT NULL,
+    side_costs REAL NOT NULL DEFAULT 0,
+    payment_day_of_month INTEGER NOT NULL DEFAULT 31,
+    is_active INTEGER DEFAULT 1,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id)
+  )`);
+
+  // Rent payments table
+  db.run(`CREATE TABLE IF NOT EXISTS rent_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_contract_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    cold_rent_amount REAL NOT NULL,
+    side_costs_amount REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    payment_method TEXT,
+    transaction_id INTEGER,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_contract_id) REFERENCES tenant_contracts(id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+  )`);
 });
 
 // ============================================================================
