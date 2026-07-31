@@ -157,7 +157,7 @@ function calculateWarmRent(coldRent, sideCosts) {
 function getActiveTenantContracts() {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT * FROM tenant_contracts WHERE isActive = 1`,
+      `SELECT * FROM tenant_contracts WHERE is_active = 1`,
       [],
       (err, rows) => {
         if (err) {
@@ -536,16 +536,20 @@ async function processRentPayments() {
   
   try {
     // Get all active contracts
-    const contracts = await getActiveTenantContracts();
-    logRentAction(`Found ${contracts.length} active tenant contracts`);
+    const contractRows = await getActiveTenantContracts();
+    logRentAction(`Found ${contractRows.length} active tenant contracts`);
+    
+    // Map database rows to frontend format
+    const contracts = contractRows.map(mapTenantContract);
 
     // Get all existing rent payments
-    const existingPayments = await new Promise((resolve, reject) => {
+    const existingPaymentRows = await new Promise((resolve, reject) => {
       db.all('SELECT * FROM rent_payments', [], (err, rows) => {
         if (err) reject(err);
         else resolve(rows);
       });
     });
+    const existingPayments = existingPaymentRows.map(mapRentPayment);
     
     // Get all categories
     const categories = await getAllCategories();
