@@ -271,8 +271,12 @@ db.serialize(() => {
     }
   });
 
-  // Add isCurrent column to tenants table if it doesn't exist
-  db.run(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS isCurrent INTEGER DEFAULT 1`);
+  // Add isCurrent column to tenants table (SQLite doesn't support IF NOT EXISTS for ALTER TABLE)
+  db.run(`ALTER TABLE tenants ADD COLUMN isCurrent INTEGER DEFAULT 1`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding isCurrent column:', err.message);
+    }
+  });
 
   // Tenant contracts table for rent management
   db.run(`CREATE TABLE IF NOT EXISTS tenant_contracts (
