@@ -297,28 +297,28 @@ DATABASE (SQLite)
 
 ---
 
-## 📊 Phase 5: Database Schema & Types (P0)
+## ✅ Phase 5: Database Schema & Types (P0) - COMPLETED
 *Estimated Effort: 2-4 hours | Dependencies: None*
 
 ### Tasks
-- [ ] Create migration file `server/migrations/002_add_rent_payment_tables.js`
-- [ ] Define `tenant_contracts` table with all fields
-- [ ] Define `rent_payments` table with all fields
-- [ ] Add proper indexes for performance:
-  - [ ] INDEX idx_tenant_contracts_tenant ON tenant_contracts(tenant_id)
-  - [ ] INDEX idx_tenant_contracts_property ON tenant_contracts(property_id)
-  - [ ] INDEX idx_tenant_contracts_active ON tenant_contracts(isActive)
-  - [ ] INDEX idx_rent_payments_contract ON rent_payments(tenant_contract_id)
-  - [ ] INDEX idx_rent_payments_date ON rent_payments(date)
-  - [ ] INDEX idx_rent_payments_status ON rent_payments(status)
-- [ ] Add foreign key constraints
-- [ ] Add to `types.ts`:
-  - [ ] `export enum RentPaymentStatus { PAID = 'PAID', PENDING = 'PENDING', OVERDUE = 'OVERDUE' }`
-  - [ ] `export enum PaymentMethod { BANK_TRANSFER = 'BANK_TRANSFER', CASH = 'CASH', OTHER = 'OTHER' }`
-  - [ ] `export interface TenantContract { id: EntityId; tenantId: EntityId; propertyId: EntityId; startDate: string; endDate?: string; coldRent: number; sideCosts: number; warmRent: number; paymentDayOfMonth: number; isActive: boolean; notes?: string; createdAt: string; updatedAt: string; }`
-  - [ ] `export interface RentPayment { id: EntityId; tenantContractId: EntityId; date: string; amount: number; coldRentAmount: number; sideCostsAmount: number; status: RentPaymentStatus; paymentMethod?: PaymentMethod; transactionId?: EntityId; notes?: string; createdAt: string; updatedAt: string; }`
-- [ ] Implement migration up() and down() functions
-- [ ] Test migration on development database
+- [x] Create migration file `server/migrations/002_add_rent_payment_tables.js`
+- [x] Define `tenant_contracts` table with all fields
+- [x] Define `rent_payments` table with all fields
+- [x] Add proper indexes for performance:
+  - [x] INDEX idx_tenant_contracts_tenant ON tenant_contracts(tenant_id)
+  - [x] INDEX idx_tenant_contracts_property ON tenant_contracts(property_id)
+  - [x] INDEX idx_tenant_contracts_active ON tenant_contracts(isActive)
+  - [x] INDEX idx_rent_payments_contract ON rent_payments(tenant_contract_id)
+  - [x] INDEX idx_rent_payments_date ON rent_payments(date)
+  - [x] INDEX idx_rent_payments_status ON rent_payments(status)
+- [x] Add foreign key constraints
+- [x] Add to `types.ts`:
+  - [x] `export enum RentPaymentStatus { PAID = 'PAID', PENDING = 'PENDING', OVERDUE = 'OVERDUE' }`
+  - [x] `export enum PaymentMethod { BANK_TRANSFER = 'BANK_TRANSFER', CASH = 'CASH', OTHER = 'OTHER' }`
+  - [x] `export interface TenantContract { id: EntityId; tenantId: EntityId; propertyId: EntityId; startDate: string; endDate?: string; coldRent: number; sideCosts: number; warmRent: number; paymentDayOfMonth: number; isActive: boolean; notes?: string; createdAt: string; updatedAt: string; }`
+  - [x] `export interface RentPayment { id: EntityId; tenantContractId: EntityId; date: string; amount: number; coldRentAmount: number; sideCostsAmount: number; status: RentPaymentStatus; paymentMethod?: PaymentMethod; transactionId?: EntityId; notes?: string; createdAt: string; updatedAt: string; }`
+- [x] Implement migration up() and down() functions
+- [x] Test migration on development database
 
 ---
 
