@@ -19,7 +19,15 @@ require('dotenv').config({ path: rootEnvPath });
 const { login, logout, requireAuth } = require('./auth-middleware');
 const { startMortgageScheduler } = require('./mortgage-automation');
 const { startRecurringScheduler } = require('./recurring-automation');
-const { validatePropertyCreation, validatePropertyUpdate, logError, databaseErrorHandler } = require('./utils/validation');
+const { startRentScheduler, triggerRentAutomation } = require('./rent-automation');
+const { 
+  validatePropertyCreation, validatePropertyUpdate,
+  validateTenantContractCreation, validateTenantContractUpdate,
+  validateRentPaymentCreation, validateRentPaymentUpdate,
+  calculateWarmRent, getDefaultPaymentDay, checkRentPaymentDuplicate,
+  logError, databaseErrorHandler 
+} = require('./utils/validation');
+const { logRentAction, logRentError } = require('./rent-automation');
 // const { performBackup, startBackupScheduler } = require('./backup');
 // const { validateAndSanitize } = require('./ai-validator');
 // const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
@@ -1038,6 +1046,375 @@ app.post('/api/automation/run-all', requireAuth, async (req, res) => {
 });
 
 // ============================================================================
+// TENANT CONTRACTS CRUD
+// ============================================================================
+
+// Helper function to map tenant_contracts from DB (snake_case) to frontend (camelCase)
+function mapTenantContract(row) {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    propertyId: String(row.property_id),
+    startDate: row.startDate,
+    endDate: row.endDate,
+    coldRent: row.coldRent,
+    sideCosts: row.sideCosts,
+    paymentDayOfMonth: row.paymentDayOfMonth,
+    isActive: Boolean(row.isActive),
+    notes: row.notes,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    // Computed property
+    warmRent: calculateWarmRent(row.coldRent, row.sideCosts),
+  };
+}
+
+// GET /api/tenant-contracts - List all contracts
+app.get('/api/tenant-contracts', requireAuth, (req, res) => {
+  db.all('SELECT * FROM tenant_contracts', [], (err, rows) => {
+    if (err) {
+      logError(err, { context: 'GET /api/tenant-contracts', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    const mappedRows = rows.map(mapTenantContract);
+    res.json(mappedRows);
+  });
+});
+
+// GET /api/tenant-contracts/:id - Get specific contract
+app.get('/api/tenant-contracts/:id', requireAuth, (req, res) => {
+  db.get('SELECT * FROM tenant_contracts WHERE id = ?', [req.params.id], (err, row) => {
+    if (err) {
+      logError(err, { context: 'GET /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Tenant contract not found' });
+    }
+    res.json(mapTenantContract(row));
+  });
+});
+
+// POST /api/tenant-contracts - Create contract
+app.post('/api/tenant-contracts', requireAuth, validateTenantContractCreation, (req, res) => {
+  const {
+    tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
+    paymentDayOfMonth, isActive, notes
+  } = req.validatedBody;
+  
+  // Calculate warm rent
+  const warmRent = calculateWarmRent(coldRent, sideCosts);
+  
+  db.run(
+    `INSERT INTO tenant_contracts (
+      tenant_id, property_id, startDate, endDate, coldRent, sideCosts, 
+      paymentDayOfMonth, isActive, notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
+     paymentDayOfMonth, isActive ? 1 : 0, notes],
+    function(err) {
+      if (err) {
+        logError(err, { context: 'POST /api/tenant-contracts', user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      // Return the created contract with warmRent
+      const createdContract = {
+        id: String(this.lastID),
+        tenantId,
+        propertyId,
+        startDate,
+        endDate,
+        coldRent,
+        sideCosts,
+        paymentDayOfMonth,
+        isActive,
+        notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        warmRent,
+      };
+      res.status(201).json(createdContract);
+    }
+  );
+});
+
+// PUT /api/tenant-contracts/:id - Update contract
+app.put('/api/tenant-contracts/:id', requireAuth, validateTenantContractUpdate, (req, res) => {
+  const { tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
+          paymentDayOfMonth, isActive, notes } = req.validatedBody;
+  
+  db.run(
+    `UPDATE tenant_contracts SET
+      tenant_id = ?, property_id = ?, startDate = ?, endDate = ?,
+      coldRent = ?, sideCosts = ?, paymentDayOfMonth = ?, isActive = ?, notes = ?
+    WHERE id = ?`,
+    [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
+     paymentDayOfMonth, isActive ? 1 : 0, notes, req.params.id],
+    function(err) {
+      if (err) {
+        logError(err, { context: 'PUT /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Tenant contract not found' });
+      }
+      // Fetch updated contract to return
+      db.get('SELECT * FROM tenant_contracts WHERE id = ?', [req.params.id], (err2, row) => {
+        if (err2) {
+          logError(err2, { context: 'PUT /api/tenant-contracts/:id fetch', contractId: req.params.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json(mapTenantContract(row));
+      });
+    }
+  );
+});
+
+// DELETE /api/tenant-contracts/:id - Delete contract
+app.delete('/api/tenant-contracts/:id', requireAuth, (req, res) => {
+  // First check if contract has rent payments
+  db.all('SELECT id FROM rent_payments WHERE tenant_contract_id = ?', [req.params.id], (err, rows) => {
+    if (err) {
+      logError(err, { context: 'DELETE /api/tenant-contracts/:id check', contractId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+    if (rows && rows.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete contract with existing rent payments',
+        count: rows.length
+      });
+    }
+    
+    // Safe to delete
+    db.run('DELETE FROM tenant_contracts WHERE id = ?', [req.params.id], function(err) {
+      if (err) {
+        logError(err, { context: 'DELETE /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Tenant contract not found' });
+      }
+      res.json({ success: true });
+    });
+  });
+});
+
+// GET /api/tenants/:tenantId/contracts - Contracts for specific tenant
+app.get('/api/tenants/:tenantId/contracts', requireAuth, (req, res) => {
+  db.all('SELECT * FROM tenant_contracts WHERE tenant_id = ?', [req.params.tenantId], (err, rows) => {
+    if (err) {
+      logError(err, { context: 'GET /api/tenants/:tenantId/contracts', tenantId: req.params.tenantId, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    const mappedRows = rows.map(mapTenantContract);
+    res.json(mappedRows);
+  });
+});
+
+// ============================================================================
+// RENT PAYMENTS CRUD
+// ============================================================================
+
+// Helper function to map rent_payments from DB (snake_case) to frontend (camelCase)
+function mapRentPayment(row) {
+  return {
+    id: String(row.id),
+    tenantContractId: String(row.tenant_contract_id),
+    date: row.date,
+    amount: row.amount,
+    coldRentAmount: row.coldRentAmount,
+    sideCostsAmount: row.sideCostsAmount,
+    status: row.status,
+    paymentMethod: row.paymentMethod,
+    transactionId: row.transaction_id ? String(row.transaction_id) : undefined,
+    notes: row.notes,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// GET /api/rent-payments - List all payments
+app.get('/api/rent-payments', requireAuth, (req, res) => {
+  const { tenantId, contractId, status, limit = 50, offset = 0 } = req.query;
+  
+  let query = 'SELECT * FROM rent_payments';
+  const params = [];
+  
+  // Build WHERE clause based on query params
+  if (tenantId) {
+    query += ' WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE tenant_id = ?)';
+    params.push(tenantId);
+  } else if (contractId) {
+    query += ' WHERE tenant_contract_id = ?';
+    params.push(contractId);
+  }
+  
+  if (status) {
+    query += (params.length > 0 ? ' AND' : ' WHERE') + ' status = ?';
+    params.push(status);
+  }
+  
+  query += ' ORDER BY date DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+  
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      logError(err, { context: 'GET /api/rent-payments', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    const mappedRows = rows.map(mapRentPayment);
+    res.json(mappedRows);
+  });
+});
+
+// GET /api/rent-payments/:id - Get specific payment
+app.get('/api/rent-payments/:id', requireAuth, (req, res) => {
+  db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (err, row) => {
+    if (err) {
+      logError(err, { context: 'GET /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Rent payment not found' });
+    }
+    res.json(mapRentPayment(row));
+  });
+});
+
+// POST /api/rent-payments - Record manual payment
+app.post('/api/rent-payments', requireAuth, validateRentPaymentCreation, async (req, res) => {
+  const {
+    tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
+    status = 'PAID', paymentMethod, transactionId, notes
+  } = req.validatedBody;
+  
+  try {
+    // Check for duplicate payment
+    const isDuplicate = await checkRentPaymentDuplicate(db, tenantContractId, date);
+    if (isDuplicate) {
+      return res.status(409).json({
+        error: 'Rent payment already exists for this contract on this date'
+      });
+    }
+    
+    // Create the rent payment
+    db.run(
+      `INSERT INTO rent_payments (
+        tenant_contract_id, date, amount, coldRentAmount, sideCostsAmount,
+        status, paymentMethod, transaction_id, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
+       status, paymentMethod, transactionId, notes],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'POST /api/rent-payments', user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.status(201).json({
+          id: String(this.lastID),
+          tenantContractId,
+          date,
+          amount,
+          coldRentAmount,
+          sideCostsAmount,
+          status,
+          paymentMethod,
+          transactionId,
+          notes,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    );
+  } catch (error) {
+    logError(error, { context: 'POST /api/rent-payments', user: req.user?.id });
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/rent-payments/:id - Update payment
+app.put('/api/rent-payments/:id', requireAuth, validateRentPaymentUpdate, (req, res) => {
+  const { tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
+          status, paymentMethod, transactionId, notes } = req.validatedBody;
+  
+  db.run(
+    `UPDATE rent_payments SET
+      tenant_contract_id = ?, date = ?, amount = ?, coldRentAmount = ?, 
+      sideCostsAmount = ?, status = ?, paymentMethod = ?, 
+      transaction_id = ?, notes = ?
+    WHERE id = ?`,
+    [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
+     status, paymentMethod, transactionId, notes, req.params.id],
+    function(err) {
+      if (err) {
+        logError(err, { context: 'PUT /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Rent payment not found' });
+      }
+      // Fetch updated payment to return
+      db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (err2, row) => {
+        if (err2) {
+          logError(err2, { context: 'PUT /api/rent-payments/:id fetch', paymentId: req.params.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json(mapRentPayment(row));
+      });
+    }
+  );
+});
+
+// DELETE /api/rent-payments/:id - Delete payment
+app.delete('/api/rent-payments/:id', requireAuth, (req, res) => {
+  db.run('DELETE FROM rent_payments WHERE id = ?', [req.params.id], function(err) {
+    if (err) {
+      logError(err, { context: 'DELETE /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'Rent payment not found' });
+    }
+    res.json({ success: true });
+  });
+});
+
+// GET /api/tenants/:tenantId/rent-payments - Payments for specific tenant
+app.get('/api/tenants/:tenantId/rent-payments', requireAuth, (req, res) => {
+  db.all(
+    `SELECT rp.* FROM rent_payments rp
+     JOIN tenant_contracts tc ON rp.tenant_contract_id = tc.id
+     WHERE tc.tenant_id = ?`,
+    [req.params.tenantId],
+    (err, rows) => {
+      if (err) {
+        logError(err, { context: 'GET /api/tenants/:tenantId/rent-payments', tenantId: req.params.tenantId, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      const mappedRows = rows.map(mapRentPayment);
+      res.json(mappedRows);
+    }
+  );
+});
+
+// GET /api/tenant-contracts/:contractId/rent-payments - Payments for specific contract
+app.get('/api/tenant-contracts/:contractId/rent-payments', requireAuth, (req, res) => {
+  db.all(
+    'SELECT * FROM rent_payments WHERE tenant_contract_id = ?',
+    [req.params.contractId],
+    (err, rows) => {
+      if (err) {
+        logError(err, { context: 'GET /api/tenant-contracts/:contractId/rent-payments', contractId: req.params.contractId, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      const mappedRows = rows.map(mapRentPayment);
+      res.json(mappedRows);
+    }
+  );
+});
+
+// ============================================================================
 // BACKUP
 // ============================================================================
 
@@ -1060,6 +1437,24 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 // startBackupScheduler();
 startMortgageScheduler();
 startRecurringScheduler();
+startRentScheduler();
+
+// API endpoint for manual rent automation trigger
+app.post('/api/automation/run-rent', requireAuth, async (req, res) => {
+  try {
+    logRentAction(`Manual rent automation triggered by user ${req.user?.id || 'unknown'}`);
+    const result = await triggerRentAutomation();
+    res.json({
+      success: result.success,
+      count: result.count,
+      contractsProcessed: result.contractsProcessed,
+      error: result.error
+    });
+  } catch (error) {
+    logRentError(error, { context: 'POST /api/automation/run-rent', user: req.user?.id });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);

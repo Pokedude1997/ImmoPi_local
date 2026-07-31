@@ -12,6 +12,10 @@ import {
   RecurringPayment,
   AppSettings,
   Counterparty,
+  TenantContract,
+  RentPayment,
+  RentPaymentStatus,
+  PaymentMethod,
 } from '../types';
 
 // Use static IP for the Pi server
@@ -324,11 +328,106 @@ export const api = {
     });
   },
 
+  async triggerRecurringAutomation(): Promise<{ success: boolean; logs: string[]; count: number; error?: string }> {
+    return apiRequest('/api/automation/run-recurring', {
+      method: 'POST',
+    });
+  },
+
+  async triggerAllAutomation(): Promise<{ success: boolean; logs: string[]; count: number; mortgage: any; recurring: any; error?: string }> {
+    return apiRequest('/api/automation/run-all', {
+      method: 'POST',
+    });
+  },
+
   // ============================================================================
   // BACKUP
   // ============================================================================
   async triggerBackup(): Promise<{ success: boolean; message: string; details: any }> {
     return apiRequest('/backup/manual', {
+      method: 'POST',
+    });
+  },
+
+  // ============================================================================
+  // TENANT CONTRACTS
+  // ============================================================================
+  async getTenantContracts(): Promise<TenantContract[]> {
+    return apiRequest<TenantContract[]>('/tenant-contracts');
+  },
+
+  async getTenantContract(id: string): Promise<TenantContract> {
+    return apiRequest<TenantContract>(`/tenant-contracts/${id}`);
+  },
+
+  async createTenantContract(data: Omit<TenantContract, 'id' | 'warmRent' | 'createdAt' | 'updatedAt'>): Promise<TenantContract> {
+    return apiRequest<TenantContract>('/tenant-contracts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTenantContract(id: string, data: Partial<TenantContract>): Promise<TenantContract> {
+    return apiRequest<TenantContract>(`/tenant-contracts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteTenantContract(id: string): Promise<void> {
+    return apiRequest<void>(`/tenant-contracts/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getTenantContractsByTenant(tenantId: string): Promise<TenantContract[]> {
+    return apiRequest<TenantContract[]>(`/tenants/${tenantId}/contracts`);
+  },
+
+  // ============================================================================
+  // RENT PAYMENTS
+  // ============================================================================
+  async getRentPayments(): Promise<RentPayment[]> {
+    return apiRequest<RentPayment[]>('/rent-payments');
+  },
+
+  async getRentPayment(id: string): Promise<RentPayment> {
+    return apiRequest<RentPayment>(`/rent-payments/${id}`);
+  },
+
+  async createRentPayment(data: Omit<RentPayment, 'id' | 'createdAt' | 'updatedAt'>): Promise<RentPayment> {
+    return apiRequest<RentPayment>('/rent-payments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateRentPayment(id: string, data: Partial<RentPayment>): Promise<RentPayment> {
+    return apiRequest<RentPayment>(`/rent-payments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteRentPayment(id: string): Promise<void> {
+    return apiRequest<void>(`/rent-payments/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getRentPaymentsByTenant(tenantId: string): Promise<RentPayment[]> {
+    return apiRequest<RentPayment[]>(`/tenants/${tenantId}/rent-payments`);
+  },
+
+  async getRentPaymentsByContract(contractId: string): Promise<RentPayment[]> {
+    return apiRequest<RentPayment[]>(`/tenant-contracts/${contractId}/rent-payments`);
+  },
+
+  // ============================================================================
+  // RENT AUTOMATION
+  // ============================================================================
+  async triggerRentAutomation(): Promise<{ success: boolean; count: number; contractsProcessed: number; error?: string }> {
+    return apiRequest('/api/automation/run-rent', {
       method: 'POST',
     });
   },

@@ -6,6 +6,146 @@
 const { z } = require('zod');
 
 // ============================================
+// Rent Payment Validation Schemas
+// ============================================
+
+const tenantContractSchema = z.object({
+  tenantId: z.string().min(1),
+  propertyId: z.string().min(1),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  coldRent: z.number().min(0).max(100000),
+  sideCosts: z.number().min(0).max(50000).default(0),
+  paymentDayOfMonth: z.number().min(1).max(31).default(31),
+  isActive: z.boolean().default(true),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+const rentPaymentSchema = z.object({
+  tenantContractId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: z.number().min(0).max(100000),
+  coldRentAmount: z.number().min(0).max(100000),
+  sideCostsAmount: z.number().min(0).max(50000),
+  status: z.enum(['PAID', 'PENDING', 'OVERDUE']).default('PENDING'),
+  paymentMethod: z.enum(['BANK_TRANSFER', 'CASH', 'OTHER']).optional().nullable(),
+  transactionId: z.string().optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+// Partial schemas for PUT operations
+const partialTenantContractSchema = tenantContractSchema.partial();
+const partialRentPaymentSchema = rentPaymentSchema.partial();
+
+// Validation middleware for tenant contracts
+function validateTenantContractCreation(req, res, next) {
+  try {
+    const validated = tenantContractSchema.parse(req.body);
+    req.validatedBody = validated;
+    next();
+  } catch (error) {
+    const errors = error.errors.map(err => ({
+      field: err.path.join('.'),
+      message: err.message,
+    }));
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors,
+    });
+  }
+}
+
+function validateTenantContractUpdate(req, res, next) {
+  try {
+    const validated = partialTenantContractSchema.parse(req.body);
+    req.validatedBody = validated;
+    next();
+  } catch (error) {
+    const errors = error.errors.map(err => ({
+      field: err.path.join('.'),
+      message: err.message,
+    }));
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors,
+    });
+  }
+}
+
+// Validation middleware for rent payments
+function validateRentPaymentCreation(req, res, next) {
+  try {
+    const validated = rentPaymentSchema.parse(req.body);
+    req.validatedBody = validated;
+    next();
+  } catch (error) {
+    const errors = error.errors.map(err => ({
+      field: err.path.join('.'),
+      message: err.message,
+    }));
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors,
+    });
+  }
+}
+
+function validateRentPaymentUpdate(req, res, next) {
+  try {
+    const validated = partialRentPaymentSchema.parse(req.body);
+    req.validatedBody = validated;
+    next();
+  } catch (error) {
+    const errors = error.errors.map(err => ({
+      field: err.path.join('.'),
+      message: err.message,
+    }));
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors,
+    });
+  }
+}
+
+// ============================================
+// Helper Functions for Rent Payments
+// ============================================
+
+/**
+ * Calculate warm rent from cold rent and side costs
+ */
+function calculateWarmRent(coldRent, sideCosts) {
+  return coldRent + sideCosts;
+}
+
+/**
+ * Get the default payment day (last day of previous month)
+ * Returns 31 as the default day of month
+ */
+function getDefaultPaymentDay() {
+  return 31;
+}
+
+/**
+ * Check if a rent payment already exists for a contract on a specific date
+ */
+async function checkRentPaymentDuplicate(db, tenantContractId, date) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      'SELECT id FROM rent_payments WHERE tenant_contract_id = ? AND date = ?',
+      [tenantContractId, date],
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row !== undefined);
+        }
+      }
+    );
+  });
+}
+
+// ============================================
 // Property Validation Schema
 // ============================================
 
@@ -153,10 +293,28 @@ function databaseErrorHandler(err, res) {
 }
 
 module.exports = {
+  // Property validation
   propertySchema,
   partialPropertySchema,
   validatePropertyCreation,
   validatePropertyUpdate,
+  
+  // Rent payment validation
+  tenantContractSchema,
+  partialTenantContractSchema,
+  validateTenantContractCreation,
+  validateTenantContractUpdate,
+  rentPaymentSchema,
+  partialRentPaymentSchema,
+  validateRentPaymentCreation,
+  validateRentPaymentUpdate,
+  
+  // Helper functions
+  calculateWarmRent,
+  getDefaultPaymentDay,
+  checkRentPaymentDuplicate,
+  
+  // Error handling
   logError,
   createErrorHandler,
   safeDatabaseError,

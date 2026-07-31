@@ -51,28 +51,44 @@ export const Properties = () => {
     const monthlyPayment = (mortgage.loanAmount * annualTotalRate) / 12;
 
     let balance = mortgage.loanAmount;
-    let currentDate = new Date(start.getFullYear(), start.getMonth(), 1);
-    const stopDateMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    let currentYear = start.getFullYear();
+    let currentMonth = start.getMonth();
+    const stopYear = now.getFullYear();
+    const stopMonth = now.getMonth();
 
-    while (currentDate <= stopDateMonth) {
+    while (true) {
       let paymentDate: Date;
       if (mortgage.paymentTiming === 'END_OF_MONTH') {
-        paymentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        paymentDate = new Date(currentYear, currentMonth + 1, 0);
       } else {
-        paymentDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        paymentDate = new Date(currentYear, currentMonth, 1);
       }
+
+      // Normalize paymentDate to start of day for comparison
+      paymentDate.setHours(0, 0, 0, 0);
 
       if (paymentDate <= now) {
         const interestPart = balance * monthlyInterestFactor;
         const principalPart = monthlyPayment - interestPart;
         balance -= principalPart;
       } else {
-        // Critical fix: If the payment date for this cycle is in the future, we stop.
+        // If the payment date for this cycle is in the future, we stop.
         break;
       }
       
-      currentDate.setMonth(currentDate.getMonth() + 1);
       if (balance <= 0) return 0;
+      
+      // Move to next month
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      
+      // Stop if we've passed the current month
+      if (currentYear > stopYear || (currentYear === stopYear && currentMonth > stopMonth)) {
+        break;
+      }
     }
     return balance;
   };
@@ -110,6 +126,11 @@ export const Properties = () => {
         await api.createProperty(updatedProp as Omit<Property, 'id'>);
       }
       await loadProperties();
+      
+      // Trigger mortgage automation if property has mortgage
+      if (hasMortgage) {
+        await api.triggerMortgageAutomation();
+      }
     } catch (error) {
       console.error('Failed to save property:', error);
     }

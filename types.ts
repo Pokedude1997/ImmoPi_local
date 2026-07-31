@@ -120,6 +120,50 @@ export interface RecurringPayment {
   active: boolean;
 }
 
+export enum RentPaymentStatus {
+  PAID = 'PAID',
+  PENDING = 'PENDING',
+  OVERDUE = 'OVERDUE',
+}
+
+export enum PaymentMethod {
+  BANK_TRANSFER = 'BANK_TRANSFER',
+  CASH = 'CASH',
+  OTHER = 'OTHER',
+}
+
+export interface TenantContract {
+  id: EntityId;
+  tenantId: EntityId;
+  propertyId: EntityId;
+  startDate: string; // ISO Date
+  endDate?: string; // ISO Date, nullable
+  coldRent: number;
+  sideCosts: number;
+  paymentDayOfMonth: number; // Day of month for rent payment (1-31), default: 31 (end of month)
+  isActive: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  // Computed property (not stored in DB): coldRent + sideCosts
+  warmRent?: number;
+}
+
+export interface RentPayment {
+  id: EntityId;
+  tenantContractId: EntityId;
+  date: string; // ISO Date, NOT NULL
+  amount: number; // warm rent amount
+  coldRentAmount: number;
+  sideCostsAmount: number;
+  status: RentPaymentStatus;
+  paymentMethod?: PaymentMethod;
+  transactionId?: EntityId;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppSettings {
   // googleDriveFolderId: string;
   currency: string;

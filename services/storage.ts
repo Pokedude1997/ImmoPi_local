@@ -12,17 +12,17 @@ import {
 const STORAGE_KEY = 'immopi_data_v1';
 
 const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'category-rent-warm', name: 'Rent (Warm)', type: CategoryType.INCOME, isTaxRelevant: true },
-  { id: 'category-rent-cold', name: 'Rent (Cold)', type: CategoryType.INCOME, isTaxRelevant: true },
-  { id: 'category-side-costs', name: 'Side Costs', type: CategoryType.INCOME, isTaxRelevant: true },
-  { id: 'category-maintenance', name: 'Maintenance / Repairs', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-hoa', name: 'Hausgeld (HOA Fee)', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-electricity', name: 'Electricity', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-internet-phone', name: 'Internet/Phone', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-property-tax', name: 'Property Tax', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-insurance', name: 'Insurance', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-mortgage-interest', name: 'Mortgage Interest', type: CategoryType.EXPENSE, isTaxRelevant: true },
-  { id: 'category-mortgage-principal', name: 'Mortgage Principal', type: CategoryType.EXPENSE, isTaxRelevant: false },
+  { id: 'category-rent-warm', name: 'Rent (Warm)', type: 'Income' as CategoryType, isTaxRelevant: true },
+  { id: 'category-rent-cold', name: 'Rent (Cold)', type: 'Income' as CategoryType, isTaxRelevant: true },
+  { id: 'category-side-costs', name: 'Side Costs', type: 'Income' as CategoryType, isTaxRelevant: true },
+  { id: 'category-maintenance', name: 'Maintenance / Repairs', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-hoa', name: 'Hausgeld (HOA Fee)', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-electricity', name: 'Electricity', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-internet-phone', name: 'Internet/Phone', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-property-tax', name: 'Property Tax', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-insurance', name: 'Insurance', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-mortgage-interest', name: 'Mortgage Interest', type: 'Expense' as CategoryType, isTaxRelevant: true },
+  { id: 'category-mortgage-principal', name: 'Mortgage Principal', type: 'Expense' as CategoryType, isTaxRelevant: false },
 ];
 
 const DEFAULT_SETTINGS: AppSettings = {

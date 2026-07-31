@@ -76,6 +76,9 @@ export const RecurringPayments = () => {
       await api.createRecurringPayment(backendPayload);
       const updatedPayments = await api.getRecurringPayments();
       setPayments(updatedPayments);
+      
+      // Trigger recurring automation to backfill past transactions
+      await api.triggerRecurringAutomation();
     } catch (error) {
       console.error('Failed to create recurring payment:', error);
     }
@@ -176,6 +179,9 @@ export const RecurringPayments = () => {
       await api.updateRecurringPayment(editingPayment.id, backendPayload);
       const updatedPayments = await api.getRecurringPayments();
       setPayments(updatedPayments);
+      
+      // Trigger recurring automation to backfill any changes
+      await api.triggerRecurringAutomation();
       handleCancelEdit();
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');
