@@ -126,25 +126,6 @@ function getDefaultPaymentDay() {
   return 31;
 }
 
-/**
- * Check if a rent payment already exists for a contract on a specific date
- */
-async function checkRentPaymentDuplicate(db, tenantContractId, date) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      'SELECT id FROM rent_payments WHERE tenant_contract_id = ? AND date = ?',
-      [tenantContractId, date],
-      (err, row) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(row !== undefined);
-        }
-      }
-    );
-  });
-}
-
 // ============================================
 // Property Validation Schema
 // ============================================
@@ -312,7 +293,6 @@ module.exports = {
   // Helper functions
   calculateWarmRent,
   getDefaultPaymentDay,
-  checkRentPaymentDuplicate,
   
   // Error handling
   logError,

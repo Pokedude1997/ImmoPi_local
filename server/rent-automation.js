@@ -371,7 +371,7 @@ function createRentPayment(payment) {
         status, payment_method, transaction_id, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        payment.tenantContractId,
+        payment.tenantContractId ? parseInt(payment.tenantContractId, 10) : null,
         payment.date,
         payment.amount,
         payment.coldRentAmount,
@@ -467,8 +467,9 @@ async function createRentPaymentForDate(contract, date, categories) {
   
   // Get property name for description
   const propertyName = await new Promise((resolve) => {
-    db.get('SELECT name FROM properties WHERE id = ?', [contract.propertyId], (err, row) => {
-      resolve(row ? row.name : `Property ${contract.propertyId}`);
+    const propertyIdInt = contract.propertyId ? parseInt(contract.propertyId, 10) : null;
+    db.get('SELECT name FROM properties WHERE id = ?', [propertyIdInt], (err, row) => {
+      resolve(row ? row.name : `Property ${contract.propertyId || 'unknown'}`);
     });
   });
 
@@ -485,7 +486,7 @@ async function createRentPaymentForDate(contract, date, categories) {
     currency: 'EUR',
     description: description,
     type: 'INCOME',
-    property_id: contract.propertyId,
+    property_id: contract.propertyId ? parseInt(contract.propertyId, 10) : null,
     category_id: rentCategory.id,
     counterparty_id: null,
     document_id: null,
@@ -493,8 +494,9 @@ async function createRentPaymentForDate(contract, date, categories) {
   });
 
   // Create rent payment linked to transaction
+  const contractIdInt = contract.id ? parseInt(contract.id, 10) : null;
   const rentPaymentId = await createRentPayment({
-    tenantContractId: contract.id,
+    tenantContractId: contractIdInt,
     date: dateStr,
     amount: warmRent,
     coldRentAmount: contract.coldRent,
@@ -541,7 +543,8 @@ async function processTenantContract(contract, today, existingPayments, categori
       const dateStr = currentDate.toISOString().split('T')[0];
       
       // Check if payment already exists for this date using the helper function
-      const isDuplicate = await checkRentPaymentDuplicate(contract.id, dateStr);
+      const contractIdInt = contract.id ? parseInt(contract.id, 10) : null;
+      const isDuplicate = await checkRentPaymentDuplicate(contractIdInt, dateStr);
       if (isDuplicate) {
         currentDate = calculateNextPaymentDate(contract, currentDate);
         continue;
@@ -551,7 +554,7 @@ async function processTenantContract(contract, today, existingPayments, categori
       if (shouldCreatePayment(contract, currentDate, todayStart)) {
         const result = await createRentPaymentForDate(contract, currentDate, categories);
         results.push(result);
-        logRentAction(`Created rent payment ${result.paymentId} for contract ${contract.id} on ${dateStr}`);
+        logRentAction(`Created rent payment ${result.paymentId} for contract ${contract.id || 'unknown'} on ${dateStr}`);
       }
 
       // Move to next payment date
