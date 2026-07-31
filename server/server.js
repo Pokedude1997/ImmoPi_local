@@ -1114,17 +1114,17 @@ function mapTenantContract(row) {
     id: String(row.id),
     tenantId: String(row.tenant_id),
     propertyId: String(row.property_id),
-    startDate: row.startDate,
-    endDate: row.endDate,
-    coldRent: row.coldRent,
-    sideCosts: row.sideCosts,
-    paymentDayOfMonth: row.paymentDayOfMonth,
-    isActive: Boolean(row.isActive),
+    startDate: row.start_date,
+    endDate: row.end_date,
+    coldRent: row.cold_rent,
+    sideCosts: row.side_costs,
+    paymentDayOfMonth: row.payment_day_of_month,
+    isActive: Boolean(row.is_active),
     notes: row.notes,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
     // Computed property
-    warmRent: calculateWarmRent(row.coldRent, row.sideCosts),
+    warmRent: calculateWarmRent(row.cold_rent, row.side_costs),
   };
 }
 
@@ -1166,8 +1166,8 @@ app.post('/api/tenant-contracts', requireAuth, validateTenantContractCreation, (
   
   db.run(
     `INSERT INTO tenant_contracts (
-      tenant_id, property_id, startDate, endDate, coldRent, sideCosts, 
-      paymentDayOfMonth, isActive, notes
+      tenant_id, property_id, start_date, end_date, cold_rent, side_costs, 
+      payment_day_of_month, is_active, notes
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
      paymentDayOfMonth, isActive ? 1 : 0, notes],
@@ -1204,8 +1204,8 @@ app.put('/api/tenant-contracts/:id', requireAuth, validateTenantContractUpdate, 
   
   db.run(
     `UPDATE tenant_contracts SET
-      tenant_id = ?, property_id = ?, startDate = ?, endDate = ?,
-      coldRent = ?, sideCosts = ?, paymentDayOfMonth = ?, isActive = ?, notes = ?
+      tenant_id = ?, property_id = ?, start_date = ?, end_date = ?,
+      cold_rent = ?, side_costs = ?, payment_day_of_month = ?, is_active = ?, notes = ?
     WHERE id = ?`,
     [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
      paymentDayOfMonth, isActive ? 1 : 0, notes, req.params.id],
@@ -1282,14 +1282,14 @@ function mapRentPayment(row) {
     tenantContractId: String(row.tenant_contract_id),
     date: row.date,
     amount: row.amount,
-    coldRentAmount: row.coldRentAmount,
-    sideCostsAmount: row.sideCostsAmount,
+    coldRentAmount: row.cold_rent_amount,
+    sideCostsAmount: row.side_costs_amount,
     status: row.status,
-    paymentMethod: row.paymentMethod,
+    paymentMethod: row.payment_method,
     transactionId: row.transaction_id ? String(row.transaction_id) : undefined,
     notes: row.notes,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -1360,8 +1360,8 @@ app.post('/api/rent-payments', requireAuth, validateRentPaymentCreation, async (
     // Create the rent payment
     db.run(
       `INSERT INTO rent_payments (
-        tenant_contract_id, date, amount, coldRentAmount, sideCostsAmount,
-        status, paymentMethod, transaction_id, notes
+        tenant_contract_id, date, amount, cold_rent_amount, side_costs_amount,
+        status, payment_method, transaction_id, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
        status, paymentMethod, transactionId, notes],
@@ -1399,8 +1399,8 @@ app.put('/api/rent-payments/:id', requireAuth, validateRentPaymentUpdate, (req, 
   
   db.run(
     `UPDATE rent_payments SET
-      tenant_contract_id = ?, date = ?, amount = ?, coldRentAmount = ?, 
-      sideCostsAmount = ?, status = ?, paymentMethod = ?, 
+      tenant_contract_id = ?, date = ?, amount = ?, cold_rent_amount = ?, 
+      side_costs_amount = ?, status = ?, payment_method = ?, 
       transaction_id = ?, notes = ?
     WHERE id = ?`,
     [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
