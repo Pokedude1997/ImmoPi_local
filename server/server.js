@@ -17,6 +17,9 @@ const rootEnvPath = path.resolve(__dirname, '../.env');
 require('dotenv').config({ path: rootEnvPath });
 
 const { login, logout, requireAuth } = require('./auth-middleware');
+const { startMortgageScheduler } = require('./mortgage-automation');
+const { startRecurringScheduler } = require('./recurring-automation');
+const { validatePropertyCreation, validatePropertyUpdate, logError, databaseErrorHandler } = require('./utils/validation');
 // const { performBackup, startBackupScheduler } = require('./backup');
 // const { validateAndSanitize } = require('./ai-validator');
 // const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
@@ -73,6 +76,37 @@ const db = new sqlite3.Database('./immopi.db', (err) => {
   if (err) console.error('❌ DB Error:', err.message);
   else console.log('✅ Connected to SQLite database.');
 });
+
+// ============================================================================
+// TYPE NORMALIZATION HELPERS
+// Normalize between database format (INCOME/EXPENSE) and frontend format (Income/Expense)
+// ============================================================================
+
+/**
+ * Normalize database type (uppercase) to frontend TypeScript enum format
+ * @param {string} dbType - Database type value (INCOME, EXPENSE)
+ * @returns {string} Normalized type (Income, Expense)
+ */
+function normalizeType(dbType) {
+  if (!dbType) return dbType;
+  const upper = String(dbType).toUpperCase();
+  if (upper === 'INCOME') return 'Income';
+  if (upper === 'EXPENSE') return 'Expense';
+  return dbType;
+}
+
+/**
+ * Normalize frontend TypeScript enum format to database format
+ * @param {string} tsType - Frontend type value (Income, Expense, INCOME, EXPENSE)
+ * @returns {string} Database type (INCOME, EXPENSE)
+ */
+function normalizeTypeForDB(tsType) {
+  if (!tsType) return tsType;
+  const upper = String(tsType).toUpperCase();
+  if (upper === 'INCOME') return 'INCOME';
+  if (upper === 'EXPENSE') return 'EXPENSE';
+  return upper;
+}
 
 // Create all tables
 db.serialize(() => {
@@ -268,7 +302,10 @@ app.get('/api/auth/check', requireAuth, (req, res) => {
 
 app.get('/api/properties', requireAuth, (req, res) => {
   db.all('SELECT * FROM properties', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'GET /api/properties', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     // Normalize ID to string for frontend consistency
     // Transform flat mortgage columns to nested mortgage object
     const mappedRows = rows.map(row => {
@@ -301,7 +338,10 @@ app.get('/api/properties', requireAuth, (req, res) => {
 
 app.get('/api/properties/:id', requireAuth, (req, res) => {
   db.get('SELECT * FROM properties WHERE id = ?', [req.params.id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'GET /api/properties/:id', propertyId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     if (!row) return res.status(404).json({ error: 'Property not found' });
     
     // Transform flat mortgage columns to nested mortgage object
@@ -330,8 +370,8 @@ app.get('/api/properties/:id', requireAuth, (req, res) => {
   });
 });
 
-app.post('/api/properties', requireAuth, (req, res) => {
-  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.body;
+app.post('/api/properties', requireAuth, validatePropertyCreation, (req, res) => {
+  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.validatedBody;
   const m = mortgage || {};
   
   db.run(
@@ -342,14 +382,17 @@ app.post('/api/properties', requireAuth, (req, res) => {
     [name, address, type, purchasePrice, purchaseDate, rentAmount, size,
       m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'POST /api/properties', user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
 });
 
-app.put('/api/properties/:id', requireAuth, (req, res) => {
-  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.body;
+app.put('/api/properties/:id', requireAuth, validatePropertyUpdate, (req, res) => {
+  const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.validatedBody;
   const m = mortgage || {};
   
   db.run(
@@ -360,7 +403,10 @@ app.put('/api/properties/:id', requireAuth, (req, res) => {
     [name, address, type, purchasePrice, purchaseDate, rentAmount, size,
       m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'PUT /api/properties', propertyId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       if (this.changes === 0) return res.status(404).json({ error: 'Property not found' });
       res.json({ success: true });
     }
@@ -369,7 +415,10 @@ app.put('/api/properties/:id', requireAuth, (req, res) => {
 
 app.delete('/api/properties/:id', requireAuth, (req, res) => {
   db.run('DELETE FROM properties WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'DELETE /api/properties/:id', propertyId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json({ success: true });
   });
 });
@@ -380,7 +429,10 @@ app.delete('/api/properties/:id', requireAuth, (req, res) => {
 
 app.get('/api/tenants', requireAuth, (req, res) => {
   db.all('SELECT * FROM tenants', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'GET /api/tenants', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     // Normalize IDs to strings and map foreign keys
     const mappedRows = rows.map(row => ({
       ...row,
@@ -397,7 +449,10 @@ app.post('/api/tenants', requireAuth, (req, res) => {
     'INSERT INTO tenants (firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'POST /api/tenants', user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
@@ -409,7 +464,10 @@ app.put('/api/tenants/:id', requireAuth, (req, res) => {
     'UPDATE tenants SET firstName=?, lastName=?, email=?, phone=?, property_id=?, leaseStart=?, leaseEnd=?, rentAmount=?, deposit=?, notes=? WHERE id=?',
     [firstName, lastName, email, phone, property_id, leaseStart, leaseEnd, rentAmount, deposit, notes, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'PUT /api/tenants/:id', tenantId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -417,7 +475,10 @@ app.put('/api/tenants/:id', requireAuth, (req, res) => {
 
 app.delete('/api/tenants/:id', requireAuth, (req, res) => {
   db.run('DELETE FROM tenants WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json({ success: true });
   });
 });
@@ -428,11 +489,15 @@ app.delete('/api/tenants/:id', requireAuth, (req, res) => {
 
 app.get('/api/categories', requireAuth, (req, res) => {
   db.all('SELECT * FROM categories', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    // Normalize ID to string for frontend consistency
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    // Normalize ID to string and type to frontend format for frontend consistency
     const mappedRows = rows.map(row => ({
       ...row,
       id: String(row.id),
+      type: normalizeType(row.type),
       isTaxRelevant: Boolean(row.isTaxRelevant),
     }));
     res.json(mappedRows);
@@ -442,9 +507,12 @@ app.get('/api/categories', requireAuth, (req, res) => {
 app.post('/api/categories', requireAuth, (req, res) => {
   const { name, type, isTaxRelevant } = req.body;
   db.run('INSERT INTO categories (name, type, isTaxRelevant) VALUES (?, ?, ?)',
-    [name, type, isTaxRelevant ? 1 : 0],
+    [name, normalizeTypeForDB(type), isTaxRelevant ? 1 : 0],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
@@ -453,9 +521,12 @@ app.post('/api/categories', requireAuth, (req, res) => {
 app.put('/api/categories/:id', requireAuth, (req, res) => {
   const { name, type, isTaxRelevant } = req.body;
   db.run('UPDATE categories SET name=?, type=?, isTaxRelevant=? WHERE id=?',
-    [name, type, isTaxRelevant ? 1 : 0, req.params.id],
+    [name, normalizeTypeForDB(type), isTaxRelevant ? 1 : 0, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -471,7 +542,10 @@ app.delete('/api/categories/:id', requireAuth, (req, res) => {
     '(SELECT COUNT(*) FROM documents WHERE category_id = ?) as totalUses',
     [categoryId, categoryId, categoryId],
     (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
 
       if (row.totalUses > 0) {
         return res.status(400).json({
@@ -480,7 +554,10 @@ app.delete('/api/categories/:id', requireAuth, (req, res) => {
       }
 
       db.run('DELETE FROM categories WHERE id = ?', [categoryId], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+          logError(err, { context: 'database operation' });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
         if (this.changes === 0) return res.status(404).json({ error: 'Category not found' });
         res.json({ success: true });
       });
@@ -494,15 +571,18 @@ app.delete('/api/categories/:id', requireAuth, (req, res) => {
 
 app.get('/api/transactions', requireAuth, (req, res) => {
   db.all('SELECT * FROM transactions ORDER BY date DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    // Map and normalize ID fields to strings for frontend consistency
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    // Map and normalize ID fields to strings and type to frontend format for frontend consistency
     const mappedRows = rows.map(row => ({
       id: String(row.id),
       date: ensureValidDate(row.date),
       amount: row.amount,
       currency: row.currency || 'EUR',
       description: row.description || '',
-      type: row.type,
+      type: normalizeType(row.type),
       // Map foreign keys to camelCase + convert to strings
       propertyId: row.property_id ? String(row.property_id) : null,
       categoryId: row.category_id ? String(row.category_id) : null,
@@ -518,9 +598,12 @@ app.post('/api/transactions', requireAuth, (req, res) => {
   const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
   db.run(
     'INSERT INTO transactions (date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [date, amount, currency || 'EUR', description, type, property_id, category_id, counterparty_id, document_id],
+    [date, amount, currency || 'EUR', description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
@@ -530,9 +613,12 @@ app.put('/api/transactions/:id', requireAuth, (req, res) => {
   const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
   db.run(
     'UPDATE transactions SET date=?, amount=?, currency=?, description=?, type=?, property_id=?, category_id=?, counterparty_id=?, document_id=? WHERE id=?',
-    [date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id, req.params.id],
+    [date, amount, currency, description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -540,7 +626,10 @@ app.put('/api/transactions/:id', requireAuth, (req, res) => {
 
 app.delete('/api/transactions/:id', requireAuth, (req, res) => {
   db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json({ success: true });
   });
 });
@@ -551,7 +640,10 @@ app.delete('/api/transactions/:id', requireAuth, (req, res) => {
 
 app.get('/api/counterparties', requireAuth, (req, res) => {
   db.all('SELECT * FROM counterparties', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     // Normalize ID to string for frontend consistency
     const mappedRows = rows.map(row => ({
       ...row,
@@ -567,7 +659,10 @@ app.post('/api/counterparties', requireAuth, (req, res) => {
     'INSERT INTO counterparties (name, type, contactPerson, email, phone, address, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [name, type, contactPerson, email, phone, address, notes],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
@@ -579,7 +674,10 @@ app.put('/api/counterparties/:id', requireAuth, (req, res) => {
     'UPDATE counterparties SET name=?, type=?, contactPerson=?, email=?, phone=?, address=?, notes=? WHERE id=?',
     [name, type, contactPerson, email, phone, address, notes, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -587,7 +685,10 @@ app.put('/api/counterparties/:id', requireAuth, (req, res) => {
 
 app.delete('/api/counterparties/:id', requireAuth, (req, res) => {
   db.run('DELETE FROM counterparties WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json({ success: true });
   });
 });
@@ -610,13 +711,16 @@ function ensureValidDate(dateValue) {
 
 app.get('/api/recurring-payments', requireAuth, (req, res) => {
   db.all('SELECT * FROM recurring_payments', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     // Map database snake_case field names to frontend camelCase expectations
     // AND convert INTEGER IDs to strings to match TypeScript EntityId = string
     const mappedRows = rows.map(row => ({
       id: String(row.id),
       name: row.name,
-      type: row.type,
+      type: row.type ? normalizeType(row.type) : null,
       amount: row.amount,
       currency: row.currency || 'EUR',
       frequency: row.frequency,
@@ -639,7 +743,10 @@ app.post('/api/recurring-payments', requireAuth, (req, res) => {
     'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [name, amount, currency || 'EUR', frequency, startDate, endDate, nextDueDate || startDate, category_id, property_id, counterparty_id, isActive ? 1 : 0],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ id: this.lastID });
     }
   );
@@ -653,7 +760,10 @@ app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
     'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, nextDueDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
     [name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActiveValue ? 1 : 0, req.params.id],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -661,7 +771,10 @@ app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
 
 app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
   db.run('DELETE FROM recurring_payments WHERE id = ?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json({ success: true });
   });
 });
@@ -672,7 +785,10 @@ app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
 
 app.get('/api/settings', requireAuth, (req, res) => {
   db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     res.json(row || { currency: 'EUR', taxYear: 2026 /* googleDriveFolderId: '' */ });
   });
 });
@@ -683,7 +799,10 @@ app.put('/api/settings', requireAuth, (req, res) => {
     'UPDATE settings SET currency=?, taxYear=? WHERE id=1',
     [currency, taxYear /* , googleDriveFolderId */],
     function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     }
   );
@@ -695,7 +814,10 @@ app.put('/api/settings', requireAuth, (req, res) => {
 
 app.get('/api/documents', requireAuth, (req, res) => {
   db.all('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id ORDER BY d.upload_date DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     // Map and normalize ID fields to strings for frontend consistency
     const mappedRows = rows.map(doc => ({
       ...doc,
@@ -714,7 +836,10 @@ app.get('/api/documents', requireAuth, (req, res) => {
 
 app.get('/api/documents/:id', requireAuth, (req, res) => {
   db.get('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id WHERE d.id = ?', [req.params.id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      logError(err, { context: 'database operation' });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
     if (!row) return res.status(404).json({ error: 'Document not found' });
     // row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
     row.driveLink = null;
@@ -740,7 +865,10 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
 
     // Delete from database
     db.run('DELETE FROM documents WHERE id = ?', [req.params.id], function(err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        logError(err, { context: 'database operation' });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
       res.json({ success: true });
     });
   } catch (error) {
@@ -867,8 +995,43 @@ app.post('/api/documents/analyze', requireAuth, upload.single('file'), async (re
 app.post('/api/automation/run-mortgage', requireAuth, async (req, res) => {
   try {
     const { runMortgageAutomation } = require('./mortgage-automation');
-    const result = await runMortgageAutomation();
+    // Force run when called via API (skip monthly check)
+    const result = await runMortgageAutomation(true);
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/automation/run-recurring', requireAuth, async (req, res) => {
+  try {
+    const { runRecurringAutomation } = require('./recurring-automation');
+    const result = await runRecurringAutomation();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/automation/run-all', requireAuth, async (req, res) => {
+  try {
+    const { runMortgageAutomation } = require('./mortgage-automation');
+    const { runRecurringAutomation } = require('./recurring-automation');
+    
+    // Force run for both automations when called via API
+    const mortgageResult = await runMortgageAutomation(true);
+    const recurringResult = await runRecurringAutomation();
+    
+    const allLogs = [...mortgageResult.logs || [], ...recurringResult.logs || []];
+    const totalCount = (mortgageResult.count || 0) + (recurringResult.count || 0);
+    
+    res.json({ 
+      success: true, 
+      logs: allLogs, 
+      count: totalCount,
+      mortgage: mortgageResult,
+      recurring: recurringResult
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -896,6 +1059,7 @@ app.post('/api/backup/manual', requireAuth, async (req, res) => {
 // initializeDriveClient();
 // startBackupScheduler();
 startMortgageScheduler();
+startRecurringScheduler();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);
