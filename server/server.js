@@ -1084,20 +1084,23 @@ app.post('/api/automation/run-all', requireAuth, async (req, res) => {
   try {
     const { runMortgageAutomation } = require('./mortgage-automation');
     const { runRecurringAutomation } = require('./recurring-automation');
+    const { triggerRentAutomation } = require('./rent-automation');
     
-    // Force run for both automations when called via API
+    // Force run for all automations when called via API
     const mortgageResult = await runMortgageAutomation(true);
     const recurringResult = await runRecurringAutomation();
+    const rentResult = await triggerRentAutomation();
     
-    const allLogs = [...mortgageResult.logs || [], ...recurringResult.logs || []];
-    const totalCount = (mortgageResult.count || 0) + (recurringResult.count || 0);
+    const allLogs = [...mortgageResult.logs || [], ...recurringResult.logs || [], ...rentResult.logs || []];
+    const totalCount = (mortgageResult.count || 0) + (recurringResult.count || 0) + (rentResult.count || 0);
     
     res.json({ 
       success: true, 
       logs: allLogs, 
       count: totalCount,
       mortgage: mortgageResult,
-      recurring: recurringResult
+      recurring: recurringResult,
+      rent: rentResult
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
