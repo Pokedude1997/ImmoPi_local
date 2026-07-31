@@ -49,6 +49,56 @@ function logRentError(error, details = {}) {
 }
 
 // ============================================================================
+// Mapping Functions (DB snake_case → Frontend camelCase)
+// ============================================================================
+
+/**
+ * Map tenant contract from DB (snake_case) to frontend (camelCase)
+ * @param {object} row - Database row with snake_case properties
+ * @returns {object} Mapped object with camelCase properties
+ */
+function mapTenantContract(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    propertyId: String(row.property_id),
+    startDate: row.start_date,
+    endDate: row.end_date,
+    coldRent: row.cold_rent,
+    sideCosts: row.side_costs,
+    paymentDayOfMonth: row.payment_day_of_month,
+    isActive: Boolean(row.is_active),
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Map rent payment from DB (snake_case) to frontend (camelCase)
+ * @param {object} row - Database row with snake_case properties
+ * @returns {object} Mapped object with camelCase properties
+ */
+function mapRentPayment(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    tenantContractId: String(row.tenant_contract_id),
+    date: row.date,
+    amount: row.amount,
+    coldRentAmount: row.cold_rent_amount,
+    sideCostsAmount: row.side_costs_amount,
+    status: row.status,
+    paymentMethod: row.payment_method,
+    transactionId: row.transaction_id ? String(row.transaction_id) : undefined,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// ============================================================================
 // Date Utilities
 // ============================================================================
 
@@ -317,8 +367,8 @@ function createRentPayment(payment) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO rent_payments (
-        tenant_contract_id, date, amount, coldRentAmount, sideCostsAmount,
-        status, paymentMethod, transaction_id, notes
+        tenant_contract_id, date, amount, cold_rent_amount, side_costs_amount,
+        status, payment_method, transaction_id, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payment.tenantContractId,
@@ -417,8 +467,8 @@ async function createRentPaymentForDate(contract, date, categories) {
   
   // Get property name for description
   const propertyName = await new Promise((resolve) => {
-    db.get('SELECT name FROM properties WHERE id = ?', [contract.property_id], (err, row) => {
-      resolve(row ? row.name : `Property ${contract.property_id}`);
+    db.get('SELECT name FROM properties WHERE id = ?', [contract.propertyId], (err, row) => {
+      resolve(row ? row.name : `Property ${contract.propertyId}`);
     });
   });
 
@@ -435,7 +485,7 @@ async function createRentPaymentForDate(contract, date, categories) {
     currency: 'EUR',
     description: description,
     type: 'INCOME',
-    property_id: contract.property_id,
+    property_id: contract.propertyId,
     category_id: rentCategory.id,
     counterparty_id: null,
     document_id: null,
