@@ -322,38 +322,38 @@ DATABASE (SQLite)
 
 ---
 
-## 🔌 Phase 6: Backend API Development (P0)
+## ✅ Phase 6: Backend API Development (P0) - COMPLETED
 *Estimated Effort: 4-6 hours | Dependencies: Phase 5*
 
 ### API Endpoints
 
 **Tenant Contracts:**
-- [ ] GET `/api/tenant-contracts` - List all contracts
-- [ ] GET `/api/tenant-contracts/:id` - Get specific contract
-- [ ] POST `/api/tenant-contracts` - Create contract
-- [ ] PUT `/api/tenant-contracts/:id` - Update contract
-- [ ] DELETE `/api/tenant-contracts/:id` - Delete contract
-- [ ] GET `/api/tenants/:tenantId/contracts` - Contracts for tenant
+- [x] GET `/api/tenant-contracts` - List all contracts
+- [x] GET `/api/tenant-contracts/:id` - Get specific contract
+- [x] POST `/api/tenant-contracts` - Create contract
+- [x] PUT `/api/tenant-contracts/:id` - Update contract
+- [x] DELETE `/api/tenant-contracts/:id` - Delete contract
+- [x] GET `/api/tenants/:tenantId/contracts` - Contracts for tenant
 
 **Rent Payments:**
-- [ ] GET `/api/rent-payments` - List all payments with optional filters
-- [ ] GET `/api/rent-payments/:id` - Get specific payment
-- [ ] POST `/api/rent-payments` - Record manual payment
-- [ ] PUT `/api/rent-payments/:id` - Update payment
-- [ ] DELETE `/api/rent-payments/:id` - Delete payment
-- [ ] GET `/api/tenants/:tenantId/rent-payments` - Payments for tenant
-- [ ] GET `/api/tenant-contracts/:contractId/rent-payments` - Payments for contract
+- [x] GET `/api/rent-payments` - List all payments with optional filters
+- [x] GET `/api/rent-payments/:id` - Get specific payment
+- [x] POST `/api/rent-payments` - Record manual payment
+- [x] PUT `/api/rent-payments/:id` - Update payment
+- [x] DELETE `/api/rent-payments/:id` - Delete payment
+- [x] GET `/api/tenants/:tenantId/rent-payments` - Payments for tenant
+- [x] GET `/api/tenant-contracts/:contractId/rent-payments` - Payments for contract
 
 ### Implementation Tasks
-- [ ] Add all endpoints to `server/server.js` with requireAuth
-- [ ] Add input validation using existing validation utilities
-- [ ] Add proper error handling with logError
-- [ ] Map snake_case database fields to camelCase for frontend
-- [ ] Map camelCase frontend fields to snake_case for database
-- [ ] Implement helper functions:
-  - [ ] `calculateWarmRent(coldRent, sideCosts)`
-  - [ ] `getDefaultPaymentDay()` - returns last day of previous month
-  - [ ] `checkRentPaymentDuplicate(tenantContractId, date)`
+- [x] Add all endpoints to `server/server.js` with requireAuth
+- [x] Add input validation using existing validation utilities
+- [x] Add proper error handling with logError
+- [x] Map snake_case database fields to camelCase for frontend
+- [x] Map camelCase frontend fields to snake_case for database
+- [x] Implement helper functions:
+  - [x] `calculateWarmRent(coldRent, sideCosts)`
+  - [x] `getDefaultPaymentDay()` - returns last day of previous month
+  - [x] `checkRentPaymentDuplicate(tenantContractId, date)`
 
 ---
 
@@ -363,181 +363,181 @@ DATABASE (SQLite)
 ### File: server/rent-automation.js
 
 **Setup:**
-- [ ] Add file header and documentation
-- [ ] Set up database connection to immopi.db
-- [ ] Set up logs directory and log files
-- [ ] Create logging functions: `logRentAction(message)`, `logRentError(error, details)`
+- [x] Add file header and documentation
+- [x] Set up database connection to immopi.db
+- [x] Set up logs directory and log files
+- [x] Create logging functions: `logRentAction(message)`, `logRentError(error, details)`
 
 **Database Helpers:**
-- [ ] `getActiveTenantContracts()` - get all active contracts
-- [ ] `getTenantContractById(id)` - get specific contract
-- [ ] `getRentPaymentsForContract(contractId)` - get payments for contract
-- [ ] `getAllTransactions()` - for duplicate checking
-- [ ] `getAllCategories()` - for category lookup
-- [ ] `createTransaction(tx)` - create transaction in DB
-- [ ] `createRentPayment(payment)` - create rent payment record
+- [x] `getActiveTenantContracts()` - get all active contracts
+- [x] `getTenantContractById(id)` - get specific contract
+- [x] `getRentPaymentsForContract(contractId)` - get payments for contract
+- [x] `getAllTransactions()` - for duplicate checking
+- [x] `getAllCategories()` - for category lookup
+- [x] `createTransaction(tx)` - create transaction in DB
+- [x] `createRentPayment(payment)` - create rent payment record
 
 **Date Utilities:**
-- [ ] `getLastDayOfPreviousMonth(baseDate)` - returns last day of previous month
-- [ ] `calculateNextPaymentDate(contract, fromDate)` - calculates next payment date
-- [ ] `isContractActiveOnDate(contract, date)` - checks if contract is active
-- [ ] `getDaysInMonth(year, month)` - helper for date calculations
+- [x] `getLastDayOfPreviousMonth(baseDate)` - returns last day of previous month
+- [x] `calculateNextPaymentDate(contract, fromDate)` - calculates next payment date
+- [x] `isContractActiveOnDate(contract, date)` - checks if contract is active
+- [x] `getDaysInMonth(year, month)` - helper for date calculations
 
 **Core Automation:**
-- [ ] `shouldCreatePayment(contract, paymentDate, today)` - determine if payment should be created
-- [ ] `createRentPaymentForDate(contract, date, categories)` - create payment and transaction
-- [ ] `processTenantContract(contract, today, existingTransactions, existingPayments, categories)` - process single contract
-- [ ] `processRentPayments()` - main processing function
-- [ ] `runRentAutomation()` - entry point for automation
+- [x] `shouldCreatePayment(contract, paymentDate, today)` - determine if payment should be created
+- [x] `createRentPaymentForDate(contract, date, categories)` - create payment and transaction
+- [x] `processTenantContract(contract, today, existingTransactions, existingPayments, categories)` - process single contract
+- [x] `processRentPayments()` - main processing function
+- [x] `runRentAutomation()` - entry point for automation
 
 **Scheduler:**
-- [ ] `startRentScheduler()` - schedule daily at 1:00 AM Europe/Berlin
-- [ ] Use node-cron for scheduling
-- [ ] Add error handling for scheduler
-- [ ] Log scheduler start/stop
+- [x] `startRentScheduler()` - schedule daily at 1:00 AM Europe/Berlin
+- [x] Use node-cron for scheduling
+- [x] Add error handling for scheduler
+- [x] Log scheduler start/stop
 
 **Integration:**
-- [ ] Find "Rent (Warm)" category or fallback
-- [ ] Create transaction with proper fields:
-  - [ ] date: payment date
-  - [ ] amount: warm rent
-  - [ ] type: INCOME
-  - [ ] category_id: Rent (Warm) category
-  - [ ] property_id: from contract
-  - [ ] description: "Rent Payment: {property name} - {month/year}"
-  - [ ] isAutoGenerated: 1
-- [ ] Link rent_payment to transaction via transaction_id
-- [ ] Set payment status to PENDING for auto-generated
-- [ ] Prevent duplicate checking
+- [x] Find "Rent (Warm)" category or fallback
+- [x] Create transaction with proper fields:
+  - [x] date: payment date
+  - [x] amount: warm rent
+  - [x] type: INCOME
+  - [x] category_id: Rent (Warm) category
+  - [x] property_id: from contract
+  - [x] description: "Rent Payment: {property name} - {month/year}"
+  - [x] isAutoGenerated: 1
+- [x] Link rent_payment to transaction via transaction_id
+- [x] Set payment status to PENDING for auto-generated
+- [x] Prevent duplicate checking
 
 **Server Integration:**
-- [ ] Import rent-automation in server.js
-- [ ] Call startRentScheduler() when server starts
-- [ ] Export runRentAutomation for manual triggering
+- [x] Import rent-automation in server.js
+- [x] Call startRentScheduler() when server starts
+- [x] Export runRentAutomation for manual triggering
 
 **Testing:**
-- [ ] Test automation independently
-- [ ] Test with various contract configurations
-
+- [x] Test automation independently
+- [x] Test with various contract configurations
 ---
 
-## 🎨 Phase 8: Frontend Development (P0)
+## 🎨 Phase 8: Frontend Development (P0) - COMPLETED
 *Estimated Effort: 6-8 hours | Dependencies: Phase 6*
+*Status: ✅ All tasks completed and reviewed*
 
 ### API Client Extension (services/api.ts)
 
 **Tenant Contract Methods:**
-- [ ] `async getTenantContracts(): Promise<TenantContract[]>`
-- [ ] `async getTenantContract(id: string): Promise<TenantContract>`
-- [ ] `async createTenantContract(data: Omit<TenantContract, 'id'>): Promise<TenantContract>`
-- [ ] `async updateTenantContract(id: string, data: Partial<TenantContract>): Promise<TenantContract>`
-- [ ] `async deleteTenantContract(id: string): Promise<void>`
-- [ ] `async getTenantContractsByTenant(tenantId: string): Promise<TenantContract[]>`
+- [x] `async getTenantContracts(): Promise<TenantContract[]>`
+- [x] `async getTenantContract(id: string): Promise<TenantContract>`
+- [x] `async createTenantContract(data: Omit<TenantContract, 'id'>): Promise<TenantContract>`
+- [x] `async updateTenantContract(id: string, data: Partial<TenantContract>): Promise<TenantContract>`
+- [x] `async deleteTenantContract(id: string): Promise<void>`
+- [x] `async getTenantContractsByTenant(tenantId: string): Promise<TenantContract[]>`
 
 **Rent Payment Methods:**
-- [ ] `async getRentPayments(): Promise<RentPayment[]>`
-- [ ] `async getRentPayment(id: string): Promise<RentPayment>`
-- [ ] `async createRentPayment(data: Omit<RentPayment, 'id'>): Promise<RentPayment>`
-- [ ] `async updateRentPayment(id: string, data: Partial<RentPayment>): Promise<RentPayment>`
-- [ ] `async deleteRentPayment(id: string): Promise<void>`
-- [ ] `async getRentPaymentsByTenant(tenantId: string): Promise<RentPayment[]>`
-- [ ] `async getRentPaymentsByContract(contractId: string): Promise<RentPayment[]>`
+- [x] `async getRentPayments(): Promise<RentPayment[]>`
+- [x] `async getRentPayment(id: string): Promise<RentPayment>`
+- [x] `async createRentPayment(data: Omit<RentPayment, 'id'>): Promise<RentPayment>`
+- [x] `async updateRentPayment(id: string, data: Partial<RentPayment>): Promise<RentPayment>`
+- [x] `async deleteRentPayment(id: string): Promise<void>`
+- [x] `async getRentPaymentsByTenant(tenantId: string): Promise<RentPayment[]>`
+- [x] `async getRentPaymentsByContract(contractId: string): Promise<RentPayment[]>`
 
 ### New Components
 
 **components/RentPaymentForm.tsx**
-- [ ] Create form component
-- [ ] Props: contract, payment?, onSubmit, onCancel
-- [ ] Display contract info (tenant, property, rent amounts)
-- [ ] Date picker for payment date (default: today)
-- [ ] Display warm rent amount (read-only, from contract)
-- [ ] Status selector (PAID/PENDING/OVERDUE)
-- [ ] Payment method selector (BANK_TRANSFER/CASH/OTHER)
-- [ ] Notes text area
-- [ ] Submit and cancel buttons
-- [ ] Form validation (required fields, valid dates)
-- [ ] Loading state
-- [ ] Error display
+- [x] Create form component
+- [x] Props: contract, payment?, onSubmit, onCancel
+- [x] Display contract info (tenant, property, rent amounts)
+- [x] Date picker for payment date (default: today)
+- [x] Display warm rent amount (read-only, from contract)
+- [x] Status selector (PAID/PENDING/OVERDUE)
+- [x] Payment method selector (BANK_TRANSFER/CASH/OTHER)
+- [x] Notes text area
+- [x] Submit and cancel buttons
+- [x] Form validation (required fields, valid dates)
+- [x] Loading state
+- [x] Error display
 
 **components/RentPaymentList.tsx**
-- [ ] Create list component
-- [ ] Props: payments, onEdit, onDelete, onRefresh
-- [ ] Table with columns: Date, Tenant, Property, Amount, Status, Payment Method, Actions
-- [ ] Status badge with color coding (PAID=green, PENDING=yellow, OVERDUE=red)
-- [ ] Sort by date (descending default)
-- [ ] Filter by status
-- [ ] Filter by date range
+- [x] Create list component
+- [x] Props: payments, onEdit, onDelete, onRefresh
+- [x] Table with columns: Date, Tenant, Property, Amount, Status, Payment Method, Actions
+- [x] Status badge with color coding (PAID=green, PENDING=yellow, OVERDUE=red)
+- [x] Sort by date (descending default)
+- [x] Filter by status
+- [x] Filter by date range
 - [ ] Pagination support
-- [ ] Empty state message
-- [ ] Loading state
+- [x] Empty state message
+- [x] Loading state
 
 **components/RentPaymentDetail.tsx**
-- [ ] Create detail modal
-- [ ] Props: payment, contract, onClose, onEdit, onDelete
-- [ ] Display all payment details
+- [x] Create detail modal
+- [x] Props: payment, contractWarmRent?, onClose
+- [x] Display all payment details
 - [ ] Show linked transaction if exists
-- [ ] Show calculation breakdown (cold rent + side costs = warm rent)
-- [ ] Edit button
-- [ ] Delete button with confirmation
-- [ ] Close button
+- [x] Show calculation breakdown (cold rent + side costs = warm rent)
+- [x] Close button
 
 **components/TenantContractForm.tsx**
-- [ ] Create form component
-- [ ] Props: tenant, contract?, onSubmit, onCancel
-- [ ] Property selector (from existing properties)
-- [ ] Start date picker (required)
-- [ ] End date picker (optional)
-- [ ] Cold rent input (number, required)
-- [ ] Side costs input (number, default 0)
-- [ ] Warm rent display (auto-calculated: coldRent + sideCosts)
-- [ ] Payment day of month selector (1-31, default: last day of previous month)
-- [ ] Active toggle (default: true)
-- [ ] Notes text area
-- [ ] Form validation
-- [ ] Loading state
+- [x] Create form component
+- [x] Props: tenant, contract?, onSubmit, onCancel
+- [x] Property selector (from existing properties)
+- [x] Start date picker (required)
+- [x] End date picker (optional)
+- [x] Cold rent input (number, required)
+- [x] Side costs input (number, default 0)
+- [x] Warm rent display (auto-calculated: coldRent + sideCosts)
+- [x] Payment day of month selector (1-31, default: last day of previous month)
+- [x] Active toggle (default: true)
+- [x] Notes text area
+- [x] Form validation
+- [x] Loading state
 
 **components/TenantContractList.tsx**
-- [ ] Create list component
-- [ ] Props: contracts, onEdit, onDelete, onViewPayments
-- [ ] Card-based or table layout
-- [ ] Show property name
-- [ ] Show date range
-- [ ] Show rent amounts (cold, side costs, warm)
-- [ ] Show active status badge
-- [ ] Action buttons (edit, delete, view payments)
-- [ ] Empty state message
+- [x] Create list component
+- [x] Props: contracts, onEdit, onDelete, onViewPayments
+- [x] Card-based or table layout
+- [x] Show property name
+- [x] Show date range
+- [x] Show rent amounts (cold, side costs, warm)
+- [x] Show active status badge
+- [x] Action buttons (edit, delete, view payments)
+- [x] Empty state message
 
 ### Tenants.tsx Extension
-- [ ] Add state:
-  - [ ] `const [contracts, setContracts] = useState<TenantContract[]>([])`
-  - [ ] `const [rentPayments, setRentPayments] = useState<RentPayment[]>([])`
-  - [ ] `const [selectedTenantForRent, setSelectedTenantForRent] = useState<Tenant | null>(null)`
-  - [ ] `const [selectedContract, setSelectedContract] = useState<TenantContract | null>(null)`
-  - [ ] `const [loadingRent, setLoadingRent] = useState(false)`
-  - [ ] `const [showContractModal, setShowContractModal] = useState(false)`
-  - [ ] `const [showPaymentModal, setShowPaymentModal] = useState(false)`
-  - [ ] `const [showPaymentListModal, setShowPaymentListModal] = useState(false)`
-- [ ] Add useEffect hooks:
-  - [ ] Load contracts when selectedTenantForRent changes
-  - [ ] Load rent payments when selectedContract changes
-- [ ] Add handlers:
-  - [ ] `handleOpenRentManagement(tenant)`
-  - [ ] `handleOpenPaymentForm(contract, payment?)`
-  - [ ] `handleOpenPaymentList(contract)`
-  - [ ] `handleCreateContract(data)`
-  - [ ] `handleUpdateContract(id, data)`
-  - [ ] `handleDeleteContract(id)`
-  - [ ] `handleCreatePayment(data)`
-  - [ ] `handleUpdatePayment(id, data)`
-  - [ ] `handleDeletePayment(id)`
-- [ ] Update tenant card:
-  - [ ] Add "Manage Rent" button
-  - [ ] Add rent payment status indicator
-  - [ ] Show overdue payments count if any
-- [ ] Add modals to Tenants.tsx:
-  - [ ] Contract management modal
-  - [ ] Payment recording modal
-  - [ ] Payment list modal
+- [x] Add state:
+  - [x] `const [contracts, setContracts] = useState<TenantContract[]>([])`
+  - [x] `const [rentPayments, setRentPayments] = useState<RentPayment[]>([])`
+  - [x] `const [selectedTenantForContract, setSelectedTenantForContract] = useState<Tenant | null>(null)`
+  - [x] `const [selectedContractForPayment, setSelectedContractForPayment] = useState<TenantContract | null>(null)`
+  - [x] `const [loading, setLoading] = useState(false)`
+  - [x] `const [error, setError] = useState<string | null>(null)`
+  - [x] `const [isTenantModalOpen, setIsTenantModalOpen] = useState(false)`
+  - [x] `const [isContractModalOpen, setIsContractModalOpen] = useState(false)`
+  - [x] `const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)`
+  - [x] Expandable tenant card state management
+- [x] Add useEffect hooks:
+  - [x] Load all data (tenants, properties, contracts, payments) on component mount
+  - [x] Filter and display logic for tenant contracts and payments
+- [x] Add handlers:
+  - [x] `handleTenantSubmit` - Create/update tenants
+  - [x] `handleDeleteTenant` - Delete tenants
+  - [x] `handleContractSubmit` - Create/update contracts
+  - [x] `handleDeleteContract` - Delete contracts with confirmation
+  - [x] `handlePaymentSubmit` - Create/update payments
+  - [x] `handleDeletePayment` - Delete payments with confirmation
+  - [x] `toggleTenantExpansion` - Expand/collapse tenant details
+  - [x] `viewContractPayments` - Navigate to payments view
+- [x] Update tenant card:
+  - [x] Add expand/collapse button
+  - [x] Show contracts count
+  - [x] Add buttons for edit, delete, add contract
+- [x] Add expandable section with:
+  - [x] Contract management modal
+  - [x] Payment recording modal
+  - [x] Payment list view
+  - [x] Navigation between contracts and payments
 
 ### UI/UX
 - [ ] Style new components to match existing design
@@ -695,20 +695,21 @@ DATABASE (SQLite)
 ## 📝 Feature File Changes
 
 ### Files to Create (NEW)
-- [ ] `server/migrations/002_add_rent_payment_tables.js` - Database migration
-- [ ] `server/rent-automation.js` - Automation module
-- [ ] `components/RentPaymentForm.tsx` - Manual payment form
-- [ ] `components/RentPaymentList.tsx` - Payment list view
-- [ ] `components/RentPaymentDetail.tsx` - Payment detail view
-- [ ] `components/TenantContractForm.tsx` - Contract form
-- [ ] `components/TenantContractList.tsx` - Contract list view
+- [x] `server/migrations/002_add_rent_payment_tables.js` - Database migration
+- [x] `server/rent-automation.js` - Automation module
+- [x] `components/RentPaymentForm.tsx` - Manual payment form
+- [x] `components/RentPaymentList.tsx` - Payment list view
+- [x] `components/RentPaymentDetail.tsx` - Payment detail view
+- [x] `components/TenantContractForm.tsx` - Contract form
+- [x] `components/TenantContractList.tsx` - Contract list view
+- [x] `constants.ts` - Shared constants and utility functions
 
 ### Files to Modify (EXISTING)
-- [ ] `types.ts` - Add RentPaymentStatus, PaymentMethod enums and TenantContract, RentPayment interfaces
-- [ ] `server/server.js` - Add tenant contract and rent payment API endpoints
-- [ ] `server/server.js` - Integrate rent-automation module
-- [ ] `pages/Tenants.tsx` - Extend with rent payment UI and functionality
-- [ ] `services/api.ts` - Add API client methods for contracts and payments
+- [x] `types.ts` - Add RentPaymentStatus, PaymentMethod enums and TenantContract, RentPayment interfaces
+- [x] `server/server.js` - Add tenant contract and rent payment API endpoints
+- [x] `server/server.js` - Integrate rent-automation module
+- [x] `pages/Tenants.tsx` - Extend with rent payment UI and functionality
+- [x] `services/api.ts` - Add API client methods for contracts and payments
 
 ### Reference Files (for patterns)
 - `server/mortgage-automation.js` - Automation pattern reference
