@@ -365,7 +365,8 @@ async function checkRentPaymentDuplicate(tenantContractId, date) {
  * @returns {boolean} True if payment should be created
  */
 function shouldCreatePayment(contract, paymentDate, today) {
-  // Don't create payments in the future
+  // Don't create payments for future dates (only past and today)
+  // Rent is paid in advance at end of preceding month, so we create when the date passes
   if (paymentDate > today) {
     return false;
   }
@@ -475,20 +476,15 @@ async function processTenantContract(contract, today, existingPayments, categori
   const results = [];
   
   try {
-    // Start from contract start date or today, whichever is later
+    // Start from contract start date
     let currentDate = new Date(contract.startDate + 'T00:00:00Z');
     const todayStart = new Date(today);
     todayStart.setUTCHours(0, 0, 0, 0);
-    
-    if (currentDate < todayStart) {
-      // Calculate the next payment date from today
-      currentDate = calculateNextPaymentDate(contract, todayStart);
-    }
 
-    // Process payments for up to 12 months ahead
-    const maxMonths = 12;
-    for (let i = 0; i < maxMonths; i++) {
-      if (!currentDate || currentDate > todayStart) {
+    // Process payments from start date, covering past dates and up to 12 months into the future
+    const maxIterations = 24; // Max 24 months to handle old contracts
+    for (let i = 0; i < maxIterations; i++) {
+      if (!currentDate) {
         break;
       }
 
@@ -510,6 +506,14 @@ async function processTenantContract(contract, today, existingPayments, categori
 
       // Move to next payment date
       currentDate = calculateNextPaymentDate(contract, currentDate);
+      
+      // Stop if we've gone beyond 12 months into the future
+      if (currentDate && currentDate > todayStart) {
+        const monthsAhead = Math.ceil((currentDate - todayStart) / (30 * 24 * 60 * 60 * 1000));
+        if (monthsAhead > 12) {
+          break;
+        }
+      }
     }
 
   } catch (error) {
