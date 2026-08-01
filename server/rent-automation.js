@@ -798,7 +798,6 @@ module.exports = {
   createRentTransaction,
   createRentPaymentAndTransaction,
   checkRentPaymentDuplicate,
-  getLastDayOfPreviousMonth,
   calculateNextPaymentDate,
   calculateFirstPaymentDate,
   isContractActiveOnDate,
