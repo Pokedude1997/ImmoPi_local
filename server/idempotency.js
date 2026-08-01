@@ -8,7 +8,14 @@
 const path = require('path');
 const dbPath = path.join(__dirname, 'immopi.db');
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database(dbPath);
+
+/**
+ * Get a database connection for idempotency checks
+ * @returns {object} SQLite database connection
+ */
+function getDatabaseConnection() {
+  return new sqlite3.Database(dbPath);
+}
 
 /**
  * Check if a transaction already exists based on key attributes
@@ -22,6 +29,7 @@ const db = new sqlite3.Database(dbPath);
  * @returns {Promise<boolean>} True if duplicate exists
  */
 async function checkTransactionExists({ description, date, amount, propertyId, categoryId, source }) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     let query = `
       SELECT id FROM transactions 
@@ -40,6 +48,11 @@ async function checkTransactionExists({ description, date, amount, propertyId, c
     }
     
     db.get(query, params, (err, row) => {
+      try {
+        db.close();
+      } catch (closeErr) {
+        // Ignore close errors
+      }
       if (err) {
         return reject(err);
       }
@@ -56,6 +69,7 @@ async function checkTransactionExists({ description, date, amount, propertyId, c
  * @returns {Promise<boolean>} True if duplicate exists
  */
 async function checkRentPaymentExists(tenantContractId, date, source) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     let query = `
       SELECT id FROM rent_payments 
@@ -70,6 +84,11 @@ async function checkRentPaymentExists(tenantContractId, date, source) {
     }
     
     db.get(query, params, (err, row) => {
+      try {
+        db.close();
+      } catch (closeErr) {
+        // Ignore close errors
+      }
       if (err) {
         return reject(err);
       }
@@ -90,6 +109,7 @@ async function checkRentPaymentExists(tenantContractId, date, source) {
  * @returns {Promise<boolean>} True if duplicate exists
  */
 async function checkRecurringPaymentExists({ description, date, amount, propertyId, categoryId, source }) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     let query = `
       SELECT id FROM transactions 
@@ -107,6 +127,11 @@ async function checkRecurringPaymentExists({ description, date, amount, property
     }
     
     db.get(query, params, (err, row) => {
+      try {
+        db.close();
+      } catch (closeErr) {
+        // Ignore close errors
+      }
       if (err) {
         return reject(err);
       }
@@ -125,6 +150,7 @@ async function checkRecurringPaymentExists({ description, date, amount, property
  * @returns {Promise<boolean>} True if already processed
  */
 async function checkAutomationAlreadyRan(entityType, entityId, startDate, endDate, source) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     // Different queries based on entity type
     let query;
@@ -168,10 +194,20 @@ async function checkAutomationAlreadyRan(entityType, entityId, startDate, endDat
         break;
         
       default:
+        try {
+          db.close();
+        } catch (closeErr) {
+          // Ignore close errors
+        }
         return resolve(false);
     }
     
     db.get(query, params, (err, row) => {
+      try {
+        db.close();
+      } catch (closeErr) {
+        // Ignore close errors
+      }
       if (err) {
         return reject(err);
       }
@@ -198,8 +234,14 @@ function createIdempotencyKey(type, entityId, date, action) {
  * @returns {Promise<boolean>} True if already processed
  */
 async function isIdempotencyKeyProcessed(key) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     db.get('SELECT id FROM idempotency_keys WHERE key = ?', [key], (err, row) => {
+      try {
+        db.close();
+      } catch (closeErr) {
+        // Ignore close errors
+      }
       if (err) {
         return reject(err);
       }
@@ -215,11 +257,17 @@ async function isIdempotencyKeyProcessed(key) {
  * @returns {Promise<void>}
  */
 async function markIdempotencyKeyProcessed(key, source) {
+  const db = getDatabaseConnection();
   return new Promise((resolve, reject) => {
     db.run(
       'INSERT OR IGNORE INTO idempotency_keys (key, source, processed_at) VALUES (?, ?, datetime("now"))',
       [key, source || 'unknown'],
       (err) => {
+        try {
+          db.close();
+        } catch (closeErr) {
+          // Ignore close errors
+        }
         if (err) {
           return reject(err);
         }
@@ -234,31 +282,45 @@ async function markIdempotencyKeyProcessed(key, source) {
  * @returns {Promise<void>}
  */
 async function ensureIdempotencyTable() {
-  return new Promise((resolve, reject) => {
-    db.run(
-      `CREATE TABLE IF NOT EXISTS idempotency_keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT NOT NULL UNIQUE,
-        source TEXT,
-        processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-      (err) => {
-        if (err) {
-          return reject(err);
-        }
-        // Create index for faster lookups
-        db.run(
-          'CREATE INDEX IF NOT EXISTS idx_idempotency_keys_key ON idempotency_keys(key)',
-          (err) => {
-            if (err) {
-              return reject(err);
-            }
-            resolve();
+  const db = getDatabaseConnection();
+  try {
+    await new Promise((resolve, reject) => {
+      db.run(
+        `CREATE TABLE IF NOT EXISTS idempotency_keys (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL UNIQUE,
+          source TEXT,
+          processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        (err) => {
+          if (err) {
+            return reject(err);
           }
-        );
-      }
-    );
-  });
+          resolve();
+        }
+      );
+    });
+    
+    // Create index for faster lookups
+    await new Promise((resolve, reject) => {
+      db.run(
+        'CREATE INDEX IF NOT EXISTS idx_idempotency_keys_key ON idempotency_keys(key)',
+        (err) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve();
+        }
+      );
+    });
+  } finally {
+    try {
+      db.close();
+    } catch (closeErr) {
+      // Ignore close errors - connection might already be closed
+      console.debug('Error closing idempotency table connection:', closeErr.message);
+    }
+  }
 }
 
 // Initialize the idempotency table when module is loaded
