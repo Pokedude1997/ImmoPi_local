@@ -154,7 +154,7 @@ function calculateFirstPaymentDate(contract) {
  * @returns {number} Number of days in the month
  */
 function getDaysInMonth(year, month) {
-  return new Date(year, month + 1, 0).getUTCDate();
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 }
 
 /**

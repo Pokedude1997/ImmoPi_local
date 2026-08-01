@@ -1084,7 +1084,6 @@ app.post('/api/automation/run-all', requireAuth, async (req, res) => {
   try {
     const { runMortgageAutomation } = require('./mortgage-automation');
     const { runRecurringAutomation } = require('./recurring-automation');
-    const { triggerRentAutomation } = require('./rent-automation');
     
     // Force run for all automations when called via API
     const mortgageResult = await runMortgageAutomation(true);
