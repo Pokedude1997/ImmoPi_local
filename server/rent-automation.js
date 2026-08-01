@@ -103,28 +103,20 @@ function mapRentPayment(row) {
 // ============================================================================
 
 /**
- * Get the last day of the previous month
- * @param {Date} baseDate - The base date to calculate from
- * @returns {Date} The last day of the previous month
- */
-function getLastDayOfPreviousMonth(baseDate) {
-  const date = new Date(baseDate);
-  date.setUTCMonth(date.getUTCMonth());
-  date.setUTCDate(0); // Move to last day of previous month
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-}
-
-/**
  * Calculate the first payment date for a contract
  * Rent is paid in advance at the end of the preceding month
- * @param {object} contract - The tenant contract
- * @returns {Date} The first payment date
+ * According to German rental practice, rent is paid "in advance" (im Voraus)
+ * at the end of the preceding month. For example:
+ * - Contract starts 2026-06-01 with payment day 31
+ * - First payment is due on 2026-05-31 (end of May, BEFORE the contract starts)
+ * 
+ * @param {object} contract - The tenant contract with startDate and paymentDayOfMonth
+ * @returns {Date} The first payment date (at or before contract start date)
  */
 function calculateFirstPaymentDate(contract) {
   // Start from contract start date
   const startDate = new Date(contract.startDate + 'T00:00:00Z');
-  const paymentDay = contract.paymentDayOfMonth || 31;
+  const paymentDay = Math.max(1, Math.min(31, contract.paymentDayOfMonth || 31));
   
   // For "paid in advance at end of preceding month", 
   // the first payment should be at the end of the month BEFORE the contract starts
@@ -134,7 +126,7 @@ function calculateFirstPaymentDate(contract) {
   
   // Set to the payment day
   const daysInMonth = getDaysInMonth(firstPaymentMonth.getUTCFullYear(), firstPaymentMonth.getUTCMonth());
-  const paymentDate = new Date(firstPaymentMonth);
+  const paymentDate = firstPaymentMonth; // Use the calculated date directly
   
   if (paymentDay > daysInMonth) {
     paymentDate.setUTCDate(daysInMonth);
@@ -159,6 +151,8 @@ function getDaysInMonth(year, month) {
 
 /**
  * Calculate the next payment date for a contract
+ * Always advances exactly one month from the first day of the current month
+ * to avoid skipping months when payment day doesn't exist in next month
  * @param {object} contract - The tenant contract
  * @param {Date} fromDate - Calculate from this date
  * @returns {Date|null} Next payment date or null if contract is not active
@@ -168,22 +162,23 @@ function calculateNextPaymentDate(contract, fromDate) {
     return null;
   }
 
-  const paymentDay = contract.paymentDayOfMonth || 31;
+  const paymentDay = Math.max(1, Math.min(31, contract.paymentDayOfMonth || 31));
   const startDate = new Date(contract.startDate + 'T00:00:00Z');
   
   // If fromDate is before startDate, use startDate
   const calcFrom = fromDate < startDate ? startDate : new Date(fromDate);
   calcFrom.setUTCHours(0, 0, 0, 0);
 
-  // Move to the next month
-  const nextMonth = new Date(calcFrom);
-  nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+  // Move to the first day of the next month from the FIRST day of current month
+  // This ensures we always advance exactly one month, regardless of the current day
+  const nextMonthBase = new Date(calcFrom);
+  nextMonthBase.setUTCDate(1); // Go to first day of current month
+  nextMonthBase.setUTCMonth(nextMonthBase.getUTCMonth() + 1); // Add one month
   
-  // Set to the payment day
-  const paymentDate = new Date(nextMonth);
-  
-  // Handle edge case: if payment day is 31 and month doesn't have 31 days
+  // Now set to the payment day
+  const paymentDate = new Date(nextMonthBase);
   const daysInMonth = getDaysInMonth(paymentDate.getUTCFullYear(), paymentDate.getUTCMonth());
+  
   if (paymentDay > daysInMonth) {
     paymentDate.setUTCDate(daysInMonth);
   } else {
