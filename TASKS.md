@@ -1,267 +1,344 @@
-# ImmoPi - Rent Payment Automation Fixes
+# ImmoPi - Event-Driven Architecture Refactoring
 
-**Project:** ImmoPi - Fix rent payment automation issues  
-**Created:** 2025-01-XX  
+**Project:** ImmoPi - Migrate from Batch-Oriented to Event-Driven Architecture  
+**Created:** 2025-08-01  
 **Priority:** P0 (Critical)  
-**Status:** Planning Phase
+**Status:** Planning Phase  
+**Parent Plan:** [edPlan.md](./edPlan.md)
 
 ---
 
-## 🎯 Issues to Fix
+## 🎯 Project Overview
 
-### Issue 1: Automation creates payments on wrong dates
-- **Current:** `processTenantContract` starts from `contract.startDate` and iterates forward
-- **Problem:** For contracts with "paid in advance at end of preceding month", the first payment should be BEFORE the contract start date
-- **Example:** Contract starts 2026-06-01, payment day 31. First payment should be 2026-05-31 (end of May), not 2026-06-01
-- **Root Cause:** The automation is using contract dates instead of payment dates
+This TASKS.md defines the implementation tasks for converting ImmoPi from batch-oriented automation to a purely event-driven architecture. Each entity change (properties, contracts, payments) should trigger relevant automation immediately.
 
-### Issue 2: Manual rent payment creation doesn't create linked transaction
-- **Current:** POST `/api/rent-payments` only creates the rent payment record
-- **Problem:** According to requirements, each rent payment should have a linked transaction
-- **Note:** The automation (`createRentPaymentForDate`) DOES create linked transactions, but manual creation doesn't
+**Current State:**
+- Mortgage automation: Runs once per month via scheduler, or manually via API call
+- Recurring payments automation: Runs via scheduler
+- Rent payments automation: Runs via scheduler
+- No automatic triggers when properties/contracts/payments are created/updated
 
----
-
-## 📋 Requirements
-
-1. Rent is paid in advance at end of preceding month (paymentDayOfMonth default 31)
-2. Each rent payment should have a linked transaction
-3. Manual payments should also create transactions
-4. Don't break existing functionality
-5. Maintain consistency between auto-generated and manual payments
-6. Don't break existing data
+**Desired State:**
+- Purely event-driven: Actions trigger immediately when data changes
+- Minimal batch processing (only as fallback/safety net)
+- Each entity triggers relevant automation when created/updated
 
 ---
 
-## 🏗️ Solution Architecture
-
-### Issue 1: Fix Payment Date Calculation
-- Create `calculateFirstPaymentDate(contract)` to calculate first payment date BEFORE contract start
-- Update `processTenantContract` to use `calculateFirstPaymentDate` instead of `contract.startDate`
-
-### Issue 2: Extract Transaction Creation Logic
-- Extract transaction creation from `createRentPaymentForDate` into reusable functions:
-  - `getRentCategory(categories)` - Find or create "Rent (Warm)" category
-  - `getPropertyName(propertyId)` - Get property name from database
-  - `buildRentTransactionDescription(contract, paymentDate)` - Build description string
-  - `createRentTransaction(contract, paymentDate, categories)` - Create transaction in DB
-- Update POST `/api/rent-payments` to create linked transactions
+## ✅ Implementation Phases
 
 ---
 
-## ✅ Implementation Plan
+### Phase 1: Foundation & Infrastructure
 
----
+**Goal:** Establish infrastructure for event-driven automation without changing existing behavior.
 
-### Phase 1: Fix Payment Date Calculation (Issue 1)
+**Duration:** 1-2 days
 
-- [ ] **Create calculateFirstPaymentDate function**
-  - Calculate first payment date based on contract.startDate and contract.paymentDayOfMonth
-  - For paid-in-advance: first payment = last day of preceding month before startDate
-  - Handle edge case: if paymentDay > days in preceding month, use last day of that month
-  - Add JSDoc documentation
-  - **File:** `server/rent-automation.js` (After line 164, before "Core Automation Logic")
+- [ ] **Create event-detection utility module**
+  - Create `server/event-detector.js` with helper functions
+  - Detect if mortgage data changed in property update
+  - Detect if payment terms changed in contract update
+  - Detect if recurring payment parameters changed
+  - **File:** `server/event-detector.js` (New)
   - **Effort:** M | **Priority:** P0
 
-- [ ] **Update processTenantContract to use calculateFirstPaymentDate**
-  - Replace line 532: `let currentDate = new Date(contract.startDate + 'T00:00:00Z');`
-  - With: `let currentDate = calculateFirstPaymentDate(contract);`
-  - **File:** `server/rent-automation.js` (Line 532)
-  - **Effort:** S | **Priority:** P0 | **Depends on:** calculateFirstPaymentDate
+- [ ] **Create idempotency helper module**
+  - Create `server/idempotency.js` with duplicate prevention functions
+  - Reusable `checkTransactionExists(description, date, amount, propertyId)`
+  - Reusable `checkRentPaymentExists(contractId, date)`
+  - **File:** `server/idempotency.js` (New)
+  - **Effort:** M | **Priority:** P0
+
+- [ ] **Extract shared automation utilities**
+  - Move common date utilities to shared module
+  - Extract duplicate checking logic from mortgage/rent/recurring modules
+  - Create reusable `isAutoGeneratedTransaction(description)` function
+  - **File:** `server/automation-utils.js` (New)
+  - **Effort:** M | **Priority:** P0
+
+- [ ] **Add logging for event-driven actions**
+  - Extend existing logging to track event-driven vs batch triggers
+  - Add `source: 'event-driven'` or `source: 'batch'` to log entries
+  - Update all automation modules to include source in logs
+  - **Files:** `server/rent-automation.js`, `server/mortgage-automation.js`, `server/recurring-automation.js`
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Create integration test framework**
+  - Create test scripts to verify event-driven automation
+  - Test create/update scenarios for each entity
+  - Verify no duplicates created
+  - **File:** `server/tests/event-driven.test.js` (New)
+  - **Effort:** M | **Priority:** P1
 
 ---
 
-### Phase 2: Extract Transaction Creation Logic (Issue 2)
+### Phase 2: Mortgage Automation - Event-Driven
 
-- [ ] **Create getRentCategory function**
-  - Extract category lookup/creation logic from createRentPaymentForDate
-  - Find or create "Rent (Warm)" category in the provided categories array
-  - If not found, create it in database and add to array
-  - Add JSDoc documentation
-  - **File:** `server/rent-automation.js` (In Database Helpers section, after line 304)
-  - **Effort:** S | **Priority:** P0
+**Goal:** Trigger mortgage transaction creation immediately when properties with mortgages are created or updated.
 
-- [ ] **Create getPropertyName function**
-  - Extract property name retrieval logic (lines 469-474)
-  - Get property name from database by propertyId
-  - Add JSDoc documentation
-  - **File:** `server/rent-automation.js` (After getRentCategory)
-  - **Effort:** S | **Priority:** P0
+**Duration:** 2-3 days
 
-- [ ] **Create buildRentTransactionDescription function**
-  - Extract description building logic (lines 476-480)
-  - Format: "Rent Payment: {propertyName} - {month} {year}"
-  - Add JSDoc documentation
-  - **File:** `server/rent-automation.js` (After getPropertyName)
-  - **Effort:** XS | **Priority:** P0
+**Dependencies:** Phase 1
 
-- [ ] **Create createRentTransaction function**
-  - Extract transaction creation logic from createRentPaymentForDate
-  - Create transaction in database with proper fields
-  - Uses: getRentCategory, getPropertyName, buildRentTransactionDescription
-  - Add JSDoc documentation
-  - **File:** `server/rent-automation.js` (After buildRentTransactionDescription)
-  - **Effort:** M | **Priority:** P0 | **Depends on:** getRentCategory, getPropertyName, buildRentTransactionDescription
+- [ ] **Refactor mortgage-automation.js for event-driven use**
+  - Export `processMortgageTransactions` as standalone function
+  - Add parameter to specify date range (for partial processing)
+  - Accept single property instead of all properties
+  - **File:** `server/mortgage-automation.js`
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Refactor createRentPaymentForDate to use new functions**
-  - Replace category lookup with await getRentCategory(categories)
-  - Replace property name retrieval with await getPropertyName(contract.propertyId)
-  - Replace description building with buildRentTransactionDescription(contract, date)
-  - Replace transaction creation with await createRentTransaction(contract, date, categories)
-  - Ensure behavior remains identical
-  - **File:** `server/rent-automation.js` (Line 439-517)
-  - **Effort:** M | **Priority:** P0 | **Depends on:** All new helper functions
+- [ ] **Create mortgage event handler**
+  - Create `handlePropertyMortgageEvent(property, oldProperty = null)`
+  - Determine if mortgage data changed (using event-detector)
+  - Calculate date range: from last mortgage transaction OR from mortgage start date
+  - Handle both create and update scenarios
+  - **File:** `server/mortgage-automation.js` (Additions)
+  - **Effort:** L | **Priority:** P0
 
----
+- [ ] **Integrate mortgage event handler into POST /api/properties**
+  - Import `handlePropertyMortgageEvent` in server.js
+  - After successful property creation, if property has mortgage data, call handler
+  - Wrap in try-catch, don't fail creation if automation fails
+  - **File:** `server/server.js` (Line ~437)
+  - **Effort:** M | **Priority:** P0
 
-### Phase 3: Update Manual Payment Endpoint (Issue 2)
+- [ ] **Integrate mortgage event handler into PUT /api/properties/:id**
+  - Fetch old property data before update
+  - After successful update, if mortgage data changed, call handler
+  - Wrap in try-catch
+  - **File:** `server/server.js` (Line ~458)
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Export new functions from rent-automation.js**
-  - Export createRentTransaction, getRentCategory, getPropertyName, buildRentTransactionDescription
-  - **File:** `server/rent-automation.js` (Module Exports section, line 699-720)
-  - **Effort:** XS | **Priority:** P0
+- [ ] **Update mortgage scheduler as fallback**
+  - Modify `runMortgageAutomation` to skip properties with recent transactions
+  - Keep existing schedule (daily at 1 AM)
+  - **File:** `server/mortgage-automation.js`
+  - **Effort:** S | **Priority:** P1
 
-- [ ] **Import required functions in server.js**
-  - Import getTenantContractById, getAllCategories, createRentTransaction from rent-automation.js
-  - **File:** `server/server.js` (Top imports section)
-  - **Effort:** XS | **Priority:** P0
-
-- [ ] **Add transaction creation logic to POST /api/rent-payments**
-  - If transactionId is NOT provided in request body:
-    - Get tenant contract: `const contract = await getTenantContractById(tenantContractId)`
-    - Return 404 if contract not found
-    - Get categories: `const categories = await getAllCategories()`
-    - Create transaction: `const txId = await createRentTransaction(contract, new Date(date), categories)`
-    - Use txId as transactionId for payment
-  - Pass transactionId to db.run call
-  - **File:** `server/server.js` (Line 1438-1455)
-  - **Effort:** M | **Priority:** P0 | **Depends on:** All Phase 2 tasks
-
-- [ ] **Add error handling for transaction creation**
-  - Wrap transaction creation in try-catch
-  - If transaction creation fails, don't create payment
-  - Return appropriate error message
-  - **File:** `server/server.js` (Line 1438-1479)
-  - **Effort:** S | **Priority:** P0 | **Depends on:** Transaction creation logic
-
-- [ ] **Handle explicit transactionId provided**
-  - If transactionId IS provided in request, use it as-is (don't create new transaction)
-  - Maintains backward compatibility
-  - **File:** `server/server.js` (Line 1438-1455)
-  - **Effort:** XS | **Priority:** P0 | **Depends on:** Transaction creation logic
+- [ ] **Test mortgage event-driven automation**
+  - Test create property with mortgage -> verify transactions created
+  - Test update mortgage data -> verify new transactions created
+  - Test no duplicates when both event and scheduler run
+  - **File:** `server/tests/mortgage-event-driven.test.js` (New)
+  - **Effort:** L | **Priority:** P0
 
 ---
 
-### Phase 4: Verify Consistency
+### Phase 3: Recurring Payment Automation - Event-Driven
 
-- [ ] **Compare transaction fields between automation and manual creation**
-  - Verify same fields are set (date, amount, currency, description, type, property_id, category_id)
-  - **Files:** `server/rent-automation.js`, `server/server.js`
-  - **Effort:** S | **Priority:** P0 | **Depends on:** Phase 1, Phase 2, Phase 3
+**Goal:** Trigger recurring payment transaction creation immediately when recurring payments are created or updated.
 
-- [ ] **Verify transaction linking consistency**
-  - Both should set transaction_id on rent_payment record
-  - **Files:** `server/rent-automation.js`, `server/server.js`
-  - **Effort:** S | **Priority:** P0 | **Depends on:** Phase 1, Phase 2, Phase 3
+**Duration:** 2-3 days
 
----
+**Dependencies:** Phase 1, Phase 2
 
-### Phase 5: Testing
+- [ ] **Refactor recurring-automation.js for event-driven use**
+  - Export `processRecurringPayment` as standalone function for single payment
+  - Add parameter to specify date range
+  - **File:** `server/recurring-automation.js`
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Test Issue 1 fix - Payment date calculation**
-  - Contract starts 2026-06-01, paymentDay=31 → expect first payment 2026-05-31
-  - Contract starts 2026-03-01, paymentDay=31 → expect first payment 2026-02-28
-  - Contract starts 2026-01-01, paymentDay=31 → expect first payment 2025-12-31
-  - Contract starts 2026-04-15, paymentDay=31 → expect first payment 2026-03-31
-  - Contract starts 2026-05-01, paymentDay=30 → expect first payment 2026-04-30
-  - **Effort:** M | **Priority:** P0 | **Depends on:** Phase 1
+- [ ] **Create recurring payment event handler**
+  - Create `handleRecurringPaymentEvent(recurringPayment, oldRecurringPayment = null)`
+  - Determine if parameters changed (using event-detector)
+  - Calculate date range: from last transaction OR from start date
+  - **File:** `server/recurring-automation.js` (Additions)
+  - **Effort:** L | **Priority:** P0
 
-- [ ] **Test Issue 2 fix - Manual payment creates transaction**
-  - POST to /api/rent-payments with tenantContractId, date, amount
-  - Verify rent payment is created
-  - Verify transaction is created
-  - Verify rent payment has transaction_id set
-  - Verify transaction has correct fields
-  - **Effort:** M | **Priority:** P0 | **Depends on:** Phase 3
+- [ ] **Integrate into POST /api/recurring-payments**
+  - After successful creation, call `handleRecurringPaymentEvent(recurringPayment)`
+  - Wrap in try-catch
+  - **File:** `server/server.js`
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Test with explicit transactionId**
-  - Create transaction manually first
-  - POST to /api/rent-payments with tenantContractId, date, amount, transactionId
-  - Verify rent payment is created with provided transactionId
-  - Verify no new transaction is created
-  - **Effort:** S | **Priority:** P0 | **Depends on:** Phase 3
+- [ ] **Integrate into PUT /api/recurring-payments/:id**
+  - Fetch old data before update
+  - After successful update, if parameters changed, call handler
+  - **File:** `server/server.js`
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Test backward compatibility**
-  - Verify existing rent payments still work
-  - Verify existing automation still works
-  - Verify existing transactions still linked correctly
-  - **Effort:** M | **Priority:** P0 | **Depends on:** All previous phases
+- [ ] **Update recurring scheduler as fallback**
+  - Modify `runRecurringAutomation` to skip payments with recent transactions
+  - **File:** `server/recurring-automation.js`
+  - **Effort:** S | **Priority:** P1
 
-- [ ] **Test error handling**
-  - POST with invalid tenantContractId → expect 404
-  - POST with missing required fields → expect 400
-  - **Effort:** S | **Priority:** P0 | **Depends on:** Phase 3
-
-- [ ] **Test automation end-to-end**
-  - Create new contract
-  - Trigger automation
-  - Verify payments and transactions created correctly
-  - **Effort:** M | **Priority:** P0 | **Depends on:** All previous phases
+- [ ] **Test recurring payment event-driven automation**
+  - Test create/update scenarios
+  - Test no duplicates
+  - **File:** `server/tests/recurring-event-driven.test.js` (New)
+  - **Effort:** L | **Priority:** P0
 
 ---
 
-### Phase 6: Code Quality
+### Phase 4: Rent Payment Automation - Event-Driven
 
-- [ ] **Add JSDoc comments to all new functions**
-  - calculateFirstPaymentDate, getRentCategory, getPropertyName, buildRentTransactionDescription, createRentTransaction
+**Goal:** Trigger rent payment creation immediately when tenant contracts are created or updated.
+
+**Duration:** 3-4 days
+
+**Dependencies:** Phase 1, Phase 2, Phase 3
+
+- [ ] **Refactor rent-automation.js for event-driven use**
+  - Export `processTenantContract` as standalone function for single contract
+  - Add parameter to specify date range
   - **File:** `server/rent-automation.js`
-  - **Effort:** S | **Priority:** P1 | **Depends on:** All implementation phases
+  - **Effort:** M | **Priority:** P0
 
-- [ ] **Clean up code**
-  - Remove debug console.log statements
-  - Ensure consistent code style
-  - Verify proper error handling
-  - **Files:** `server/rent-automation.js`, `server/server.js`
-  - **Effort:** S | **Priority:** P1 | **Depends on:** All implementation phases
+- [ ] **Create rent payment event handler**
+  - Create `handleTenantContractEvent(contract, oldContract = null)`
+  - Determine if payment terms changed (using event-detector)
+  - Calculate date range: from first payment date OR from last existing payment
+  - **File:** `server/rent-automation.js` (Additions)
+  - **Effort:** L | **Priority:** P0
 
-- [ ] **Verify no breaking changes**
-  - Check existing function signatures preserved
-  - Check existing exports still exported
-  - Check existing functionality still works
-  - **Files:** All modified files
-  - **Effort:** M | **Priority:** P0 | **Depends on:** All implementation phases
+- [ ] **Integrate into POST /api/tenant-contracts**
+  - After successful creation, if contract.isActive, call handler
+  - Wrap in try-catch
+  - **File:** `server/server.js` (Line ~1159)
+  - **Effort:** M | **Priority:** P0
+
+- [ ] **Integrate into PUT /api/tenant-contracts/:id**
+  - Fetch old contract data before update
+  - After successful update, if payment terms changed, call handler
+  - **File:** `server/server.js` (Line ~1240)
+  - **Effort:** M | **Priority:** P0
+
+- [ ] **Update rent scheduler as fallback**
+  - Modify `runRentAutomation` to skip contracts with recent payments
+  - **File:** `server/rent-automation.js`
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Ensure manual rent payment creation still works**
+  - Verify POST /api/rent-payments still creates linked transactions
+  - **File:** `server/server.js` (Line ~1444)
+  - **Effort:** M | **Priority:** P0
+
+- [ ] **Test rent payment event-driven automation**
+  - Test create tenant contract -> verify rent payments created
+  - Test update contract terms -> verify new payments created
+  - Test no duplicates when both event and scheduler run
+  - Test manual payment creation doesn't conflict
+  - **File:** `server/tests/rent-event-driven.test.js` (New)
+  - **Effort:** XL | **Priority:** P0
+
+---
+
+### Phase 5: Scheduler Migration & Dashboard Updates
+
+**Goal:** Transition schedulers to fallback mode and update dashboard.
+
+**Duration:** 2-3 days
+
+**Dependencies:** Phase 2, Phase 3, Phase 4
+
+- [ ] **Update mortgage scheduler to fallback-only mode**
+  - Add configuration flag: `EVENT_DRIVEN_MORTGAGE = true`
+  - Scheduler only processes properties without any mortgage transactions
+  - **File:** `server/mortgage-automation.js`
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Update recurring payment scheduler to fallback-only mode**
+  - Add configuration flag: `EVENT_DRIVEN_RECURRING = true`
+  - **File:** `server/recurring-automation.js`
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Update rent payment scheduler to fallback-only mode**
+  - Add configuration flag: `EVENT_DRIVEN_RENT = true`
+  - **File:** `server/rent-automation.js`
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Update Dashboard Refresh Button**
+  - Update tooltip to indicate it runs fallback automation
+  - **File:** Frontend component (need to identify)
+  - **Effort:** S | **Priority:** P2
+
+- [ ] **Create comprehensive system test**
+  - Test complete workflow end-to-end
+  - **File:** `server/tests/system-event-driven.test.js` (New)
+  - **Effort:** XL | **Priority:** P0
+
+---
+
+### Phase 6: Cleanup, Optimization & Documentation
+
+**Goal:** Finalize the migration and document.
+
+**Duration:** 2-3 days
+
+**Dependencies:** All previous phases
+
+- [ ] **Remove redundant code**
+  - Clean up deprecated functions
+  - **Files:** All automation modules
+  - **Effort:** M | **Priority:** P1
+
+- [ ] **Optimize event-driven performance**
+  - Add caching for frequently accessed data
+  - Optimize database queries
+  - **Files:** All automation modules
+  - **Effort:** M | **Priority:** P2
+
+- [ ] **Update API documentation**
+  - Document new event-driven behavior
+  - **File:** `readme.md`
+  - **Effort:** M | **Priority:** P1
+
+- [ ] **Create architecture decision record (ADR)**
+  - Document why event-driven was chosen
+  - Include performance benchmarks
+  - **File:** `docs/adr/001-event-driven-architecture.md` (New)
+  - **Effort:** S | **Priority:** P1
+
+- [ ] **Create migration guide**
+  - Document rollback steps
+  - **File:** `docs/migration/event-driven-migration.md` (New)
+  - **Effort:** M | **Priority:** P1
+
+- [ ] **Final system verification**
+  - Run all tests
+  - Manual verification
+  - **Effort:** XL | **Priority:** P0
+
+---
+
+## 🎯 Success Criteria
+
+### Functional
+- [ ] Mortgage transactions created immediately on property create with mortgage
+- [ ] Mortgage transactions created immediately on property update with mortgage changes
+- [ ] Recurring payment transactions created immediately on recurring payment create/update
+- [ ] Rent payments created immediately on tenant contract create/update
+- [ ] Manual rent payment creation still works
+- [ ] Dashboard refresh button still works as fallback
+- [ ] Schedulers run without creating duplicates
+- [ ] No existing functionality is broken
+
+### Non-Functional
+- [ ] Zero downtime during migration
+- [ ] All existing tests pass
+- [ ] New event-driven tests pass
+- [ ] Performance maintained or improved
+- [ ] Code is well-documented
+- [ ] Rollback is possible at any phase
 
 ---
 
 ## 📊 Implementation Order
 
 ```
-Phase 1: Fix Payment Date Calculation (Issue 1)
+Phase 1: Foundation & Infrastructure
     ↓
-Phase 2: Extract Transaction Creation Logic (Issue 2)
+Phase 2: Mortgage Automation - Event-Driven
     ↓
-Phase 3: Update Manual Payment Endpoint (Issue 2)
+Phase 3: Recurring Payment Automation - Event-Driven
     ↓
-Phase 4: Verify Consistency
+Phase 4: Rent Payment Automation - Event-Driven
     ↓
-Phase 5: Testing
+Phase 5: Scheduler Migration & Dashboard Updates
     ↓
-Phase 6: Code Quality
+Phase 6: Cleanup, Optimization & Documentation
 ```
-
----
-
-## 🎯 Success Criteria
-
-- [ ] Automation creates first payment on correct date (before contract start)
-- [ ] All subsequent payments have correct dates
-- [ ] Manual payment creation creates linked transaction
-- [ ] Auto-generated and manual payments are consistent
-- [ ] No existing functionality is broken
-- [ ] All edge cases handled correctly
-- [ ] All tests pass
-- [ ] Code follows project standards
-- [ ] No breaking changes to existing data
 
 ---
 
@@ -269,21 +346,44 @@ Phase 6: Code Quality
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Breaking existing automation | Medium | High | Extensive testing. Database backup before changes. |
-| Inconsistent payment/transaction data | Medium | High | Verify all fields set consistently. Add validation. |
-| Date calculation errors | High | Medium | Test all edge cases. Use existing date utilities. |
-| Transaction creation fails silently | Medium | Medium | Add proper error handling and logging. |
-| Performance degradation | Low | Medium | Profile before/after. Optimize if needed. |
+| Duplicate transactions created | High | High | Use idempotency checks; extensive testing |
+| Event handler fails silently | Medium | High | Add proper error logging; wrap in try-catch |
+| Performance degradation | Medium | Medium | Profile before/after; optimize queries |
+| Breaking existing automation | Medium | High | Each phase tested independently |
+| Scheduler and event both run | High | Medium | Idempotency checks prevent duplicates |
 
 ---
 
-## 📝 Files to Modify
+## 📝 Files Reference
 
-- `server/rent-automation.js` - Fix payment date calculation, extract transaction creation logic
-- `server/server.js` - Update POST /api/rent-payments endpoint
+### New Files
+- `server/event-detector.js`
+- `server/idempotency.js`
+- `server/automation-utils.js`
+- `server/tests/event-driven.test.js`
+- `server/tests/mortgage-event-driven.test.js`
+- `server/tests/recurring-event-driven.test.js`
+- `server/tests/rent-event-driven.test.js`
+- `server/tests/system-event-driven.test.js`
+- `docs/adr/001-event-driven-architecture.md`
+- `docs/migration/event-driven-migration.md`
+
+### Modified Files
+- `server/mortgage-automation.js`
+- `server/recurring-automation.js`
+- `server/rent-automation.js`
+- `server/server.js`
+- `readme.md`
+- Frontend component (dashboard)
 
 ---
 
 ## 🏷️ Tags
 
-#rent-payments #automation #bugfix #p0 #payment-dates #transactions #date-calculation
+#event-driven #architecture #refactoring #mortgage #recurring-payments #rent-payments #automation #p0 #scheduler #batch-processing
+
+---
+
+**Document Version:** 1.0  
+**Last Updated:** 2025-08-01  
+**Related Plan:** [edPlan.md](./edPlan.md)
