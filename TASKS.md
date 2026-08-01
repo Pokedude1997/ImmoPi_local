@@ -171,66 +171,321 @@ This TASKS.md defines the implementation tasks for converting ImmoPi from batch-
 
 ---
 
-### Phase 4: Rent Payment Automation - Event-Driven
 
-**Goal:** Trigger rent payment creation immediately when tenant contracts are created or updated.
+---
 
-**Duration:** 3-4 days
+### Phase 4A: Rent Automation Refactoring
+
+**Goal**: Refactor rent-automation.js and create basic event-driven rent payment handling following the exact same pattern as Phase 2 (Mortgage) and Phase 3 (Recurring Payments).
+
+**Duration**: 2-3 days
 
 **Dependencies:** Phase 1, Phase 2, Phase 3
 
-- [ ] **Refactor rent-automation.js for event-driven use**
-  - Export `processTenantContract` as standalone function for single contract
-  - Add parameter to specify date range
-  - **File:** `server/rent-automation.js`
-  - **Effort:** M | **Priority:** P0
+**Constraints:**
+- MUST use SOURCE_TAGS from automation-utils.js (EVENT_DRIVEN_RENT, BATCH_RENT)
+- MUST use hasPaymentTermsChanged from event-detector.js
+- MUST follow exact same pattern as Phase 2 and Phase 3
+- MUST maintain existing scheduler as fallback
+- MUST ensure no breaking changes
 
-- [ ] **Create rent payment event handler**
-  - Create `handleTenantContractEvent(contract, oldContract = null)`
-  - Determine if payment terms changed (using event-detector)
-  - Calculate date range: from first payment date OR from last existing payment
-  - **File:** `server/rent-automation.js` (Additions)
-  - **Effort:** L | **Priority:** P0
+---
 
-- [ ] **Integrate into POST /api/tenant-contracts**
-  - After successful creation, if contract.isActive, call handler
-  - Wrap in try-catch
-  - **File:** `server/server.js` (Line ~1159)
-  - **Effort:** M | **Priority:** P0
+#### Phase 4A-1: Preparation & Analysis
 
-- [ ] **Integrate into PUT /api/tenant-contracts/:id**
-  - Fetch old contract data before update
-  - After successful update, if payment terms changed, call handler
-  - **File:** `server/server.js` (Line ~1240)
-  - **Effort:** M | **Priority:** P0
+- [ ] Review rent-automation.js current implementation
+- [ ] Review mortgage-automation.js event-driven pattern (reference)
+- [ ] Review recurring-automation.js event-driven pattern (reference)
+- [ ] Review event-detector.js hasPaymentTermsChanged function
+- [ ] Review automation-utils.js SOURCE_TAGS (EVENT_DRIVEN_RENT, BATCH_RENT)
+- [ ] Review server.js tenant-contracts endpoints (POST/PUT)
+- [ ] Document current rent automation flow
+- [ ] Identify all functions that need source parameter
+- [ ] Create backup of current rent-automation.js
 
-- [ ] **Update rent scheduler as fallback**
-  - Modify `runRentAutomation` to skip contracts with recent payments
+---
+
+#### Phase 4A-2: Refactor rent-automation.js - Core Processing
+
+- [ ] Export `processTenantContract` as standalone function
+  - [ ] Accept single contract parameter (not all contracts)
+  - [ ] Accept `source` parameter (default to BATCH_RENT)
+  - [ ] Accept `today` parameter for testability
+  - [ ] Accept `existingPayments` and `categories` as parameters
+  - [ ] Use existing `calculateFirstPaymentDate` logic
+  - [ ] Use existing `calculateNextPaymentDate` logic
+  - [ ] Maintain existing duplicate checking with source tag awareness
+
+- [ ] Update `createRentPaymentAndTransaction` function
+  - [ ] Add `source` parameter to pass through to transactions
+  - [ ] Update transaction creation to include source field
+  - [ ] Update rent payment creation to include source in notes
+
+- [ ] Update `createRentTransaction` function
+  - [ ] Add `source` parameter
+  - [ ] Include source in transaction description or metadata
+
+- [ ] Update `processRentPayments` function
+  - [ ] Accept optional `source` parameter
+  - [ ] Pass source to `processTenantContract` calls
+  - [ ] Maintain backward compatibility (default to BATCH_RENT)
+
+- [ ] Update logging functions
+  - [ ] Add source parameter to `logRentAction` function
+  - [ ] Add source parameter to `logRentError` function
+
+- [ ] Update duplicate checking
+  - [ ] Modify `checkRentPaymentDuplicate` to be source-aware
+  - [ ] Ensure event-driven and batch can coexist without conflicts
+
+---
+
+#### Phase 4A-3: Create Rent Payment Event Handler
+
+- [ ] Create `handleTenantContractEvent` function
+  - [ ] Import SOURCE_TAGS from automation-utils.js
+  - [ ] Import hasPaymentTermsChanged from event-detector.js
+  - [ ] Accept parameters: `contract`, `oldContract = null`, `options = {}`
+  - [ ] Set default source to SOURCE_TAGS.EVENT_DRIVEN_RENT
+  - [ ] Allow source override via options.source
+
+- [ ] Implement create scenario logic
+  - [ ] If no oldContract (create scenario):
+    - [ ] Log creation action with source tag
+    - [ ] Call processTenantContract with contract, source, today
+    - [ ] Return success with logs and count
+
+- [ ] Implement update scenario logic
+  - [ ] Check if payment terms changed using hasPaymentTermsChanged
+  - [ ] If not changed: return skip result with appropriate log
+  - [ ] If changed: proceed with processing
+
+- [ ] Implement data fetching
+  - [ ] Fetch existing rent payments for this contract
+  - [ ] Fetch all categories from database
+  - [ ] Fetch today's date (normalized to midnight UTC)
+
+- [ ] Implement processing
+  - [ ] Call processTenantContract with contract, today, existingPayments, categories, source
+  - [ ] Collect all results and logs
+  - [ ] Count successful creations
+
+- [ ] Implement error handling
+  - [ ] Wrap processing in try-catch
+  - [ ] Log errors with source tag using logRentError
+  - [ ] Return error result with appropriate status
+
+- [ ] Return result object with:
+  - [ ] success: boolean
+  - [ ] logs: Array of log messages
+  - [ ] count: number of payments created
+  - [ ] contractId: ID of processed contract
+  - [ ] error: error message (if failed)
+
+---
+
+#### Phase 4A-4: Integrate into POST /api/tenant-contracts
+
+- [ ] Locate POST /api/tenant-contracts endpoint in server.js
+- [ ] Import handleTenantContractEvent from rent-automation.js
+- [ ] After successful contract creation:
+  - [ ] Create contract object in correct format (camelCase from db row)
+  - [ ] Check if contract.isActive is true
+  - [ ] If active: call handleTenantContractEvent(contract)
+  - [ ] Wrap call in try-catch to prevent creation failure
+  - [ ] Log success/failure with appropriate source tag
+  - [ ] Do NOT wait for result (fire-and-forget pattern)
+- [ ] Maintain existing triggerRentAutomation call as fallback
+- [ ] Verify response still returns created contract
+- [ ] Verify no breaking changes to existing behavior
+
+---
+
+#### Phase 4A-5: Integrate into PUT /api/tenant-contracts/:id
+
+- [ ] Locate PUT /api/tenant-contracts/:id endpoint in server.js
+- [ ] Modify endpoint to fetch old contract data before update
+  - [ ] Add query to get existing contract before running UPDATE
+  - [ ] Store old contract data in variable
+- [ ] After successful update:
+  - [ ] Fetch updated contract data from database
+  - [ ] Create oldContract object in correct format
+  - [ ] Create newContract object in correct format
+  - [ ] Check if payment terms changed using hasPaymentTermsChanged
+  - [ ] If changed: call handleTenantContractEvent(newContract, oldContract)
+  - [ ] Wrap call in try-catch
+  - [ ] Log success/failure with source tag
+- [ ] Maintain existing triggerRentAutomation call as fallback
+- [ ] Verify response still returns updated contract
+- [ ] Verify no breaking changes to existing behavior
+
+---
+
+#### Phase 4A-6: Update Existing Scheduler (Maintain as Fallback)
+
+- [ ] Verify startRentScheduler still works
+- [ ] Verify runRentAutomation still works
+- [ ] Verify processRentPayments still works
+- [ ] Update processRentPayments to pass source = BATCH_RENT
+- [ ] Ensure all batch-created payments/transactions have source tag
+- [ ] No immediate changes to scheduler logic (optimization in Phase 4B)
+
+---
+
+#### Phase 4A-7: Add Source Tag Support to Database
+
+- [ ] Verify transactions table has `source` column
+  - [ ] If not: create migration to add source column
+- [ ] Verify rent_payments can store source information
+  - [ ] Check if source can be stored in notes or separate column
+- [ ] Create migration if needed:
+  - [ ] File: server/migrations/003_add_source_to_rent_tables.js
+
+---
+
+#### Phase 4A-8: Create Basic Integration Tests
+
+- [ ] Create test file: server/tests/rent-event-driven.test.js
+
+- [ ] Test setup helpers:
+  - [ ] Create cleanupTestData function
+  - [ ] Create createTestTenant function
+  - [ ] Create createTestProperty function
+  - [ ] Create createTestTenantContract function
+  - [ ] Create getRentPaymentsBySource function
+  - [ ] Create getRentPaymentsByContract function
+
+- [ ] Test: Create tenant contract -> verify rent payments created
+  - [ ] Create test tenant and property
+  - [ ] Create test contract with start date in past
+  - [ ] Call handleTenantContractEvent with new contract
+  - [ ] Verify rent payments created for appropriate dates
+  - [ ] Verify each payment has transaction linked
+  - [ ] Verify source tag is EVENT_DRIVEN_RENT
+  - [ ] Verify no duplicates created
+
+- [ ] Test: Update contract cold rent -> verify new payments created
+  - [ ] Create test contract with rent payments
+  - [ ] Update coldRent value
+  - [ ] Call handleTenantContractEvent with new and old contract
+  - [ ] Verify new rent payments created with new amounts
+  - [ ] Verify source tag is EVENT_DRIVEN_RENT
+  - [ ] Verify old payments still exist (no deletion)
+
+- [ ] Test: Update contract start date -> verify payments regenerated
+  - [ ] Create test contract
+  - [ ] Update startDate to earlier date
+  - [ ] Call handleTenantContractEvent with new and old contract
+  - [ ] Verify payments created for new date range
+  - [ ] Verify source tag is EVENT_DRIVEN_RENT
+
+- [ ] Test: No duplicates when both event and scheduler run
+  - [ ] Create test contract
+  - [ ] Call handleTenantContractEvent (event-driven)
+  - [ ] Call processRentPayments (batch)
+  - [ ] Verify no duplicate payments created
+  - [ ] Verify different source tags on each
+
+- [ ] Test: Skip when payment terms unchanged
+  - [ ] Create test contract with rent payments
+  - [ ] Update non-payment field (e.g., notes)
+  - [ ] Call handleTenantContractEvent with new and old contract
+  - [ ] Verify no new payments created
+  - [ ] Verify appropriate skip message in logs
+
+- [ ] Test: Inactive contract does not create payments
+  - [ ] Create test contract with isActive = false
+  - [ ] Call handleTenantContractEvent
+  - [ ] Verify no payments created
+
+- [ ] Test: Error handling
+  - [ ] Pass invalid contract data
+  - [ ] Verify error caught and logged
+  - [ ] Verify function returns error result
+  - [ ] Verify no crash
+
+---
+
+#### Phase 4A-9: Manual Testing & Verification
+
+- [ ] Test POST /api/tenant-contracts with active contract
+  - [ ] Verify contract created successfully
+  - [ ] Verify rent payments created (check database)
+  - [ ] Verify transactions created and linked
+  - [ ] Verify source tags are correct
+- [ ] Test PUT /api/tenant-contracts/:id with payment term changes
+  - [ ] Verify contract updated successfully
+  - [ ] Verify new rent payments created
+  - [ ] Verify source tags are correct
+- [ ] Test PUT /api/tenant-contracts/:id with non-payment term changes
+  - [ ] Verify contract updated successfully
+  - [ ] Verify no new rent payments created
+- [ ] Test scheduler still works
+  - [ ] Manually trigger rent automation
+  - [ ] Verify payments created with BATCH_RENT source
+- [ ] Test both event-driven and batch coexist
+  - [ ] Create contract via API
+  - [ ] Manually trigger scheduler
+  - [ ] Verify no duplicates
+- [ ] Test edge cases:
+  - [ ] Contract with future start date
+  - [ ] Contract with end date in past
+  - [ ] Contract with null end date
+  - [ ] Multiple contracts for same tenant
+
+---
+
+### Phase 4B: Manual Payment & Edge Case Verification
+
+**Goal**: Verify manual rent payment creation and handle edge cases for rent automation.
+
+**Duration**: 2 days
+
+**Dependencies:** Phase 4A
+
+- [ ] **Update rent payment scheduler as fallback**
+  - Modify `runRentAutomation` to skip contracts that already have recent payments
+  - Add check: if contract's last rent payment is current, skip
+  - Add `source: 'batch-rent'` tag to batch-created payments and transactions
+  - Keep existing schedule (daily at 1 AM Europe/Berlin)
   - **File:** `server/rent-automation.js`
   - **Effort:** S | **Priority:** P1
 
 - [ ] **Ensure manual rent payment creation still works**
   - Verify POST /api/rent-payments still creates linked transactions
+  - Ensure no conflict with event-driven automation
+  - Test edge cases (manual payment on same date as auto-generated)
   - **File:** `server/server.js` (Line ~1444)
   - **Effort:** M | **Priority:** P0
 
-- [ ] **Test rent payment event-driven automation**
-  - Test create tenant contract -> verify rent payments created
-  - Test update contract terms -> verify new payments created
-  - Test no duplicates when both event and scheduler run
-  - Test manual payment creation doesn't conflict
-  - **File:** `server/tests/rent-event-driven.test.js` (New)
-  - **Effort:** XL | **Priority:** P0
+- [ ] **Manual payment conflict resolution**
+  - Add logic to detect manual payments on auto-generated dates
+  - Implement strategy: skip auto-generation if manual payment exists
+  - Ensure manual payments have different source tag or null source
+  - **File:** `server/rent-automation.js`
+  - **Effort:** M | **Priority:** P0
 
----
+- [ ] **Edge case testing**
+  - Test: Partial months (contract starts mid-month)
+  - Test: Overlapping contracts
+  - Test: Contract updates with backdated changes
+  - Test: Multiple updates in quick succession
+  - **File:** `server/tests/rent-edge-cases.test.js` (New)
+  - **Effort:** L | **Priority:** P0
 
+- [ ] **Comprehensive integration tests**
+  - Test complete rent automation workflow
+  - Verify all edge cases handled correctly
+  - Ensure no data corruption in any scenario
+  - **File:** `server/tests/rent-event-driven.test.js` (Update)
+  - **Effort:** L | **Priority:** P0
 ### Phase 5: Scheduler Migration & Dashboard Updates
 
 **Goal:** Transition schedulers to fallback mode and update dashboard.
 
 **Duration:** 2-3 days
 
-**Dependencies:** Phase 2, Phase 3, Phase 4
+**Dependencies:** Phase 2, Phase 3, Phase 4A, Phase 4B
 
 - [ ] **Update mortgage scheduler to fallback-only mode**
   - Add configuration flag: `EVENT_DRIVEN_MORTGAGE = true`
@@ -308,7 +563,7 @@ This TASKS.md defines the implementation tasks for converting ImmoPi from batch-
 - [ ] Mortgage transactions created immediately on property create with mortgage
 - [ ] Mortgage transactions created immediately on property update with mortgage changes
 - [ ] Recurring payment transactions created immediately on recurring payment create/update
-- [ ] Rent payments created immediately on tenant contract create/update
+- [ ] Rent payments created immediately on tenant contract create/update (Phase 4A)
 - [ ] Manual rent payment creation still works
 - [ ] Dashboard refresh button still works as fallback
 - [ ] Schedulers run without creating duplicates
@@ -333,7 +588,9 @@ Phase 2: Mortgage Automation - Event-Driven
     ↓
 Phase 3: Recurring Payment Automation - Event-Driven
     ↓
-Phase 4: Rent Payment Automation - Event-Driven
+Phase 4A: Rent Automation Refactoring
+    ↓
+Phase 4B: Manual Payment & Edge Case Verification
     ↓
 Phase 5: Scheduler Migration & Dashboard Updates
     ↓
@@ -364,7 +621,9 @@ Phase 6: Cleanup, Optimization & Documentation
 - `server/tests/mortgage-event-driven.test.js`
 - `server/tests/recurring-event-driven.test.js`
 - `server/tests/rent-event-driven.test.js`
+- `server/tests/rent-edge-cases.test.js`
 - `server/tests/system-event-driven.test.js`
+- `server/migrations/003_add_source_to_rent_tables.js` (if needed)
 - `docs/adr/001-event-driven-architecture.md`
 - `docs/migration/event-driven-migration.md`
 
