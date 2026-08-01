@@ -103,20 +103,33 @@ function mapRentPayment(row) {
 // ============================================================================
 
 /**
+ * Get the last day of a given month
+ * @param {Date} date - Any date in the target month
+ * @returns {Date} Date set to the last day of the month at 00:00:00 UTC
+ */
+function getLastDayOfMonth(date) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const lastDay = getDaysInMonth(year, month);
+  return new Date(Date.UTC(year, month, lastDay));
+}
+
+/**
  * Calculate the first payment date for a contract
  * Rent is paid in advance at the end of the preceding month
  * According to German rental practice, rent is paid "in advance" (im Voraus)
  * at the end of the preceding month. For example:
- * - Contract starts 2026-06-01 with payment day 31
+ * - Contract starts 2026-06-01
  * - First payment is due on 2026-05-31 (end of May, BEFORE the contract starts)
  * 
- * @param {object} contract - The tenant contract with startDate and paymentDayOfMonth
+ * ALWAYS uses the last day of the month, regardless of paymentDayOfMonth setting
+ * 
+ * @param {object} contract - The tenant contract with startDate
  * @returns {Date} The first payment date (at or before contract start date)
  */
 function calculateFirstPaymentDate(contract) {
   // Start from contract start date
   const startDate = new Date(contract.startDate + 'T00:00:00Z');
-  const paymentDay = Math.max(1, Math.min(31, contract.paymentDayOfMonth || 31));
   
   // For "paid in advance at end of preceding month", 
   // the first payment should be at the end of the month BEFORE the contract starts
@@ -124,19 +137,8 @@ function calculateFirstPaymentDate(contract) {
   const firstPaymentMonth = new Date(startDate);
   firstPaymentMonth.setUTCMonth(firstPaymentMonth.getUTCMonth() - 1);
   
-  // Set to the payment day
-  const daysInMonth = getDaysInMonth(firstPaymentMonth.getUTCFullYear(), firstPaymentMonth.getUTCMonth());
-  const paymentDate = firstPaymentMonth; // Use the calculated date directly
-  
-  if (paymentDay > daysInMonth) {
-    paymentDate.setUTCDate(daysInMonth);
-  } else {
-    paymentDate.setUTCDate(paymentDay);
-  }
-  
-  paymentDate.setUTCHours(0, 0, 0, 0);
-  
-  return paymentDate;
+  // Always set to the last day of the preceding month
+  return getLastDayOfMonth(firstPaymentMonth);
 }
 
 /**
@@ -151,8 +153,8 @@ function getDaysInMonth(year, month) {
 
 /**
  * Calculate the next payment date for a contract
- * Always advances exactly one month from the first day of the current month
- * to avoid skipping months when payment day doesn't exist in next month
+ * Always advances exactly one month and uses the last day of that month
+ * to ensure rent is always paid at end of month regardless of month length
  * @param {object} contract - The tenant contract
  * @param {Date} fromDate - Calculate from this date
  * @returns {Date|null} Next payment date or null if contract is not active
@@ -162,11 +164,8 @@ function calculateNextPaymentDate(contract, fromDate) {
     return null;
   }
 
-  const paymentDay = Math.max(1, Math.min(31, contract.paymentDayOfMonth || 31));
-  const startDate = new Date(contract.startDate + 'T00:00:00Z');
-  
-  // If fromDate is before startDate, use startDate
-  const calcFrom = fromDate < startDate ? startDate : new Date(fromDate);
+  // Always work from the provided fromDate, normalized to midnight UTC
+  const calcFrom = new Date(fromDate);
   calcFrom.setUTCHours(0, 0, 0, 0);
 
   // Move to the first day of the next month from the FIRST day of current month
@@ -175,19 +174,8 @@ function calculateNextPaymentDate(contract, fromDate) {
   nextMonthBase.setUTCDate(1); // Go to first day of current month
   nextMonthBase.setUTCMonth(nextMonthBase.getUTCMonth() + 1); // Add one month
   
-  // Now set to the payment day
-  const paymentDate = new Date(nextMonthBase);
-  const daysInMonth = getDaysInMonth(paymentDate.getUTCFullYear(), paymentDate.getUTCMonth());
-  
-  if (paymentDay > daysInMonth) {
-    paymentDate.setUTCDate(daysInMonth);
-  } else {
-    paymentDate.setUTCDate(paymentDay);
-  }
-  
-  paymentDate.setUTCHours(0, 0, 0, 0);
-  
-  return paymentDate;
+  // Always set to the last day of the next month
+  return getLastDayOfMonth(nextMonthBase);
 }
 
 /**
@@ -800,6 +788,7 @@ module.exports = {
   checkRentPaymentDuplicate,
   calculateNextPaymentDate,
   calculateFirstPaymentDate,
+  getLastDayOfMonth,
   isContractActiveOnDate,
   calculateWarmRent,
   getDaysInMonth,

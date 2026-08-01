@@ -101,8 +101,8 @@ const runMigration = async () => {
               notes TEXT,
               createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
               updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-              FOREIGN KEY (property_id) REFERENCES properties(id)
+              FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+              FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
             )
           `, (err) => {
             if (err) {
@@ -163,12 +163,12 @@ const runMigration = async () => {
               sideCostsAmount REAL NOT NULL,
               status TEXT NOT NULL DEFAULT 'PENDING',
               paymentMethod TEXT,
-              transaction_id INTEGER,
+              transaction_id INTEGER NOT NULL,
               notes TEXT,
               createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
               updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (tenant_contract_id) REFERENCES tenant_contracts(id),
-              FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+              FOREIGN KEY (tenant_contract_id) REFERENCES tenant_contracts(id) ON DELETE CASCADE,
+              FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
             )
           `, (err) => {
             if (err) {
@@ -187,7 +187,8 @@ const runMigration = async () => {
       const rentPaymentIndexDefs = [
         'idx_rent_payments_contract ON rent_payments(tenant_contract_id)',
         'idx_rent_payments_date ON rent_payments(date)',
-        'idx_rent_payments_status ON rent_payments(status)'
+        'idx_rent_payments_status ON rent_payments(status)',
+        'idx_rent_payments_transaction ON rent_payments(transaction_id)'
       ];
 
       for (const indexDef of rentPaymentIndexDefs) {
