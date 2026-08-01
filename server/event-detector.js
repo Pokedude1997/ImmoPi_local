@@ -116,16 +116,19 @@ function hasRecurringPaymentChanged(newRecurring, oldRecurring) {
     return true;
   }
 
+  // Match actual database column names for recurring_payments table
   const recurringFields = [
+    'name',
     'amount',
+    'currency',
     'frequency',
     'startDate',
     'endDate',
-    'nextPaymentDate',
+    'nextDueDate',
     'isActive',
-    'categoryId',
-    'description',
-    'counterpartyId'
+    'category_id',
+    'property_id',
+    'counterparty_id'
   ];
 
   for (const field of recurringFields) {

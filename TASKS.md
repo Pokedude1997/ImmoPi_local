@@ -3,7 +3,7 @@
 **Project:** ImmoPi - Migrate from Batch-Oriented to Event-Driven Architecture  
 **Created:** 2025-08-01  
 **Priority:** P0 (Critical)  
-**Status:** Planning Phase  
+**Status:** Phase 3 Complete  
 **Parent Plan:** [edPlan.md](./edPlan.md)
 
 ---
@@ -133,37 +133,37 @@ This TASKS.md defines the implementation tasks for converting ImmoPi from batch-
 
 **Dependencies:** Phase 1, Phase 2
 
-- [ ] **Refactor recurring-automation.js for event-driven use**
+- [x] **Refactor recurring-automation.js for event-driven use**
   - Export `processRecurringPayment` as standalone function for single payment
   - Add parameter to specify date range
   - **File:** `server/recurring-automation.js`
   - **Effort:** M | **Priority:** P0
 
-- [ ] **Create recurring payment event handler**
+- [x] **Create recurring payment event handler**
   - Create `handleRecurringPaymentEvent(recurringPayment, oldRecurringPayment = null)`
   - Determine if parameters changed (using event-detector)
   - Calculate date range: from last transaction OR from start date
   - **File:** `server/recurring-automation.js` (Additions)
   - **Effort:** L | **Priority:** P0
 
-- [ ] **Integrate into POST /api/recurring-payments**
+- [x] **Integrate into POST /api/recurring-payments**
   - After successful creation, call `handleRecurringPaymentEvent(recurringPayment)`
   - Wrap in try-catch
   - **File:** `server/server.js`
   - **Effort:** M | **Priority:** P0
 
-- [ ] **Integrate into PUT /api/recurring-payments/:id**
+- [x] **Integrate into PUT /api/recurring-payments/:id**
   - Fetch old data before update
   - After successful update, if parameters changed, call handler
   - **File:** `server/server.js`
   - **Effort:** M | **Priority:** P0
 
-- [ ] **Update recurring scheduler as fallback**
+- [x] **Update recurring scheduler as fallback**
   - Modify `runRecurringAutomation` to skip payments with recent transactions
   - **File:** `server/recurring-automation.js`
   - **Effort:** S | **Priority:** P1
 
-- [ ] **Test recurring payment event-driven automation**
+- [x] **Test recurring payment event-driven automation**
   - Test create/update scenarios
   - Test no duplicates
   - **File:** `server/tests/recurring-event-driven.test.js` (New)

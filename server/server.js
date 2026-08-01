@@ -18,8 +18,8 @@ require('dotenv').config({ path: rootEnvPath });
 
 const { login, logout, requireAuth } = require('./auth-middleware');
 const { startMortgageScheduler, handlePropertyMortgageEvent } = require('./mortgage-automation');
-const { hasMortgageChanged, hasMortgageData } = require('./event-detector');
-const { startRecurringScheduler } = require('./recurring-automation');
+const { hasMortgageChanged, hasMortgageData, hasRecurringPaymentChanged } = require('./event-detector');
+const { startRecurringScheduler, handleRecurringPaymentEvent } = require('./recurring-automation');
 const { startRentScheduler, triggerRentAutomation, checkRentPaymentDuplicate, createRentTransaction, createRentPaymentAndTransaction, getTenantContractById } = require('./rent-automation');
 const { 
   validatePropertyCreation, validatePropertyUpdate,
@@ -890,7 +890,34 @@ app.post('/api/recurring-payments', requireAuth, (req, res) => {
         logError(err, { context: 'database operation' });
         return res.status(500).json({ error: 'Internal server error' });
       }
-      res.json({ id: this.lastID });
+      
+      const recurringPaymentId = this.lastID;
+      
+      // Trigger recurring payment automation for this payment
+      db.get('SELECT * FROM recurring_payments WHERE id = ?', [recurringPaymentId], (fetchErr, paymentRow) => {
+        if (fetchErr) {
+          console.error('Error fetching created recurring payment for automation:', fetchErr.message);
+          // Don't fail the response - automation can be retried
+          return;
+        }
+        
+        if (paymentRow) {
+          // Trigger recurring payment automation asynchronously
+          handleRecurringPaymentEvent(paymentRow)
+            .then(result => {
+              if (result.success && result.count > 0) {
+                console.log(`✅ Recurring automation for new payment ${paymentRow.name}: ${result.count} transactions created`);
+              } else if (!result.success) {
+                console.error(`❌ Recurring automation failed for payment ${paymentRow.name}: ${result.error}`);
+              }
+            })
+            .catch(err => {
+              console.error('❌ Error in recurring automation for new payment:', err.message);
+            });
+        }
+      });
+      
+      res.json({ id: recurringPaymentId });
     }
   );
 });
@@ -899,17 +926,64 @@ app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
   const { name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive, active } = req.body;
   // Support both isActive and active field names
   const isActiveValue = isActive !== undefined ? isActive : active;
-  db.run(
-    'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, nextDueDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
-    [name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActiveValue ? 1 : 0, req.params.id],
-    function(err) {
-      if (err) {
-        logError(err, { context: 'database operation' });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      res.json({ success: true });
+  const recurringPaymentId = req.params.id;
+  
+  // First, fetch the old recurring payment data to check if parameters changed
+  db.get('SELECT * FROM recurring_payments WHERE id = ?', [recurringPaymentId], (fetchErr, oldPaymentRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'PUT /api/recurring-payments - fetch old payment', recurringPaymentId });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    
+    if (!oldPaymentRow) {
+      return res.status(404).json({ error: 'Recurring payment not found' });
+    }
+    
+    // Perform the update
+    db.run(
+      'UPDATE recurring_payments SET name=?, amount=?, currency=?, frequency=?, startDate=?, endDate=?, nextDueDate=?, category_id=?, property_id=?, counterparty_id=?, isActive=? WHERE id=?',
+      [name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActiveValue ? 1 : 0, recurringPaymentId],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'database operation' });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        
+        if (this.changes === 0) return res.status(404).json({ error: 'Recurring payment not found' });
+        
+        // Fetch the updated recurring payment data
+        db.get('SELECT * FROM recurring_payments WHERE id = ?', [recurringPaymentId], (updatedFetchErr, updatedPaymentRow) => {
+          if (updatedFetchErr) {
+            console.error('Error fetching updated recurring payment for automation:', updatedFetchErr.message);
+            // Don't fail the response - automation can be retried
+            return;
+          }
+          
+          if (updatedPaymentRow) {
+            // Check if recurring payment parameters changed
+            const paymentChanged = hasRecurringPaymentChanged(updatedPaymentRow, oldPaymentRow);
+            
+            if (paymentChanged) {
+              // Trigger recurring payment automation
+              handleRecurringPaymentEvent(updatedPaymentRow, oldPaymentRow)
+                .then(result => {
+                  if (result.success && result.count > 0) {
+                    console.log(`✅ Recurring automation for updated payment ${updatedPaymentRow.name}: ${result.count} transactions created`);
+                  } else if (!result.success) {
+                    console.error(`❌ Recurring automation failed for updated payment ${updatedPaymentRow.name}: ${result.error}`);
+                  }
+                })
+                .catch(err => {
+                  console.error('❌ Error in recurring automation for updated payment:', err.message);
+                });
+            }
+          }
+          
+          res.json({ success: true });
+        });
+      }
+    );
+  });
 });
 
 app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
