@@ -23,15 +23,28 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-function logRecurringAction(message) {
+/**
+ * Log recurring automation actions with optional source tag
+ * @param {string} message - Log message
+ * @param {string} [source] - Source tag (e.g., 'event-driven-recurring', 'batch-recurring')
+ */
+function logRecurringAction(message, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | ${message}\n`;
+  const sourceStr = source ? `[${source}]` : 'RECURRING';
+  const logEntry = `${timestamp} | ${sourceStr} | ${message}\n`;
   fs.appendFileSync(path.join(logsDir, 'recurring-automation.log'), logEntry);
 }
 
-function logRecurringError(error, details = {}) {
+/**
+ * Log recurring automation errors with optional source tag
+ * @param {Error} error - Error object
+ * @param {object} [details] - Additional details
+ * @param {string} [source] - Source tag
+ */
+function logRecurringError(error, details = {}, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
+  const sourceStr = source ? `[${source}]` : 'RECURRING';
+  const logEntry = `${timestamp} | ${sourceStr} | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
   fs.appendFileSync(path.join(logsDir, 'recurring-automation-errors.log'), logEntry);
 }
 

@@ -31,20 +31,27 @@ if (!fs.existsSync(logsDir)) {
 }
 
 /**
- * Log rent automation actions
+ * Log rent automation actions with optional source tag
+ * @param {string} message - Log message
+ * @param {string} [source] - Source tag (e.g., 'event-driven-rent', 'batch-rent')
  */
-function logRentAction(message) {
+function logRentAction(message, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | RENT | ${message}\n`;
+  const sourceStr = source ? `[${source}]` : 'RENT';
+  const logEntry = `${timestamp} | ${sourceStr} | ${message}\n`;
   fs.appendFileSync(path.join(logsDir, 'rent-automation.log'), logEntry);
 }
 
 /**
- * Log rent automation errors
+ * Log rent automation errors with optional source tag
+ * @param {Error} error - Error object
+ * @param {object} [details] - Additional details
+ * @param {string} [source] - Source tag
  */
-function logRentError(error, details = {}) {
+function logRentError(error, details = {}, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | RENT | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
+  const sourceStr = source ? `[${source}]` : 'RENT';
+  const logEntry = `${timestamp} | ${sourceStr} | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
   fs.appendFileSync(path.join(logsDir, 'rent-automation-errors.log'), logEntry);
 }
 

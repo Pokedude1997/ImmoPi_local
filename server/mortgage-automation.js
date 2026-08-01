@@ -22,15 +22,28 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-function logMortgageAction(message) {
+/**
+ * Log mortgage automation actions with optional source tag
+ * @param {string} message - Log message
+ * @param {string} [source] - Source tag (e.g., 'event-driven-mortgage', 'batch-mortgage')
+ */
+function logMortgageAction(message, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | ${message}\n`;
+  const sourceStr = source ? `[${source}]` : 'MORTGAGE';
+  const logEntry = `${timestamp} | ${sourceStr} | ${message}\n`;
   fs.appendFileSync(path.join(logsDir, 'mortgage-automation.log'), logEntry);
 }
 
-function logMortgageError(error, details = {}) {
+/**
+ * Log mortgage automation errors with optional source tag
+ * @param {Error} error - Error object
+ * @param {object} [details] - Additional details
+ * @param {string} [source] - Source tag
+ */
+function logMortgageError(error, details = {}, source) {
   const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
+  const sourceStr = source ? `[${source}]` : 'MORTGAGE';
+  const logEntry = `${timestamp} | ${sourceStr} | ERROR | ${error.message} | ${JSON.stringify(details)}\n`;
   fs.appendFileSync(path.join(logsDir, 'mortgage-automation-errors.log'), logEntry);
 }
 
