@@ -89,7 +89,20 @@ function hasPaymentTermsChanged(newContract, oldContract) {
     'isActive'
   ];
 
-  for (const field of paymentFields) {
+  // Also support snake_case field names for database rows
+  const snakeCaseFields = [
+    'cold_rent',
+    'side_costs',
+    'payment_day_of_month',
+    'start_date',
+    'end_date',
+    'is_active'
+  ];
+
+  // Combine both camelCase and snake_case fields
+  const allFields = [...paymentFields, ...snakeCaseFields];
+
+  for (const field of allFields) {
     const oldValue = oldContract[field];
     const newValue = newContract[field];
     

@@ -20,7 +20,8 @@ const { login, logout, requireAuth } = require('./auth-middleware');
 const { startMortgageScheduler, handlePropertyMortgageEvent } = require('./mortgage-automation');
 const { hasMortgageChanged, hasMortgageData, hasRecurringPaymentChanged } = require('./event-detector');
 const { startRecurringScheduler, handleRecurringPaymentEvent } = require('./recurring-automation');
-const { startRentScheduler, triggerRentAutomation, checkRentPaymentDuplicate, createRentTransaction, createRentPaymentAndTransaction, getTenantContractById } = require('./rent-automation');
+const { startRentScheduler, triggerRentAutomation, handleTenantContractEvent, checkRentPaymentDuplicate, createRentTransaction, createRentPaymentAndTransaction, getTenantContractById, SOURCE_TAGS: RENT_SOURCE_TAGS } = require('./rent-automation');
+const { SOURCE_TAGS: AUTOMATION_SOURCE_TAGS } = require('./automation-utils');
 const { 
   validatePropertyCreation, validatePropertyUpdate,
   validateTenantContractCreation, validateTenantContractUpdate,
@@ -1375,14 +1376,32 @@ app.post('/api/tenant-contracts', requireAuth, validateTenantContractCreation, a
         warmRent,
       };
       
-      // Trigger rent automation to create payments for this contract
-      triggerRentAutomation().then(() => {
-        logRentAction(`Rent automation triggered after contract creation: ${this.lastID}`);
-      }).catch((autoError) => {
-        logRentError(autoError, { context: 'post-contract-creation rent automation', contractId: this.lastID });
+      // Trigger rent automation for this specific contract (event-driven)
+      const contractId = this.lastID;
+      db.get('SELECT * FROM tenant_contracts WHERE id = ?', [contractId], (fetchErr, contractRow) => {
+        if (fetchErr) {
+          console.error('Error fetching created contract for automation:', fetchErr.message);
+          // Don't fail the response - automation can be retried
+          return res.status(201).json(createdContract);
+        }
+        
+        if (contractRow) {
+          // Trigger rent payment automation asynchronously for this specific contract
+          handleTenantContractEvent(contractRow)
+            .then(result => {
+              if (result.success && result.count > 0) {
+                console.log(`✅ Rent automation for new contract ${contractRow.id}: ${result.count} payments created`);
+              } else if (!result.success) {
+                console.error(`❌ Rent automation failed for contract ${contractRow.id}: ${result.error}`);
+              }
+            })
+            .catch(err => {
+              console.error('❌ Error in rent automation for new contract:', err.message);
+            });
+        }
+        
+        res.status(201).json(createdContract);
       });
-      
-      res.status(201).json(createdContract);
     }
   );
 });
@@ -1391,78 +1410,98 @@ app.post('/api/tenant-contracts', requireAuth, validateTenantContractCreation, a
 app.put('/api/tenant-contracts/:id', requireAuth, validateTenantContractUpdate, (req, res) => {
   const { tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
           paymentDayOfMonth, isActive, notes } = req.validatedBody;
+  const contractId = req.params.id;
   
-  // Validate that tenant and property exist if they are being updated
-  const totalValidations = (tenantId ? 1 : 0) + (propertyId ? 1 : 0);
-  let validationsCompleted = 0;
-  
-  if (totalValidations > 0) {
-    if (tenantId) {
-      db.get('SELECT id FROM tenants WHERE id = ?', [tenantId], (err, row) => {
-        if (err) {
-          logError(err, { context: 'PUT tenant-contract tenant validation', contractId: req.params.id });
-          return res.status(500).json({ error: 'Internal server error' });
-        }
-        if (!row) {
-          return res.status(400).json({ error: `Tenant with ID ${tenantId} does not exist` });
-        }
-        validationsCompleted++;
-        if (validationsCompleted === totalValidations) proceedWithUpdate();
-      });
+  // First, fetch the old contract data for change detection
+  db.get('SELECT * FROM tenant_contracts WHERE id = ?', [contractId], (fetchErr, oldContractRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'PUT /api/tenant-contracts/:id - fetch old contract', contractId });
+      return res.status(500).json({ error: 'Internal server error' });
     }
     
-    if (propertyId) {
-      db.get('SELECT id FROM properties WHERE id = ?', [propertyId], (err, row) => {
-        if (err) {
-          logError(err, { context: 'PUT tenant-contract property validation', contractId: req.params.id });
-          return res.status(500).json({ error: 'Internal server error' });
-        }
-        if (!row) {
-          return res.status(400).json({ error: `Property with ID ${propertyId} does not exist` });
-        }
-        validationsCompleted++;
-        if (validationsCompleted === totalValidations) proceedWithUpdate();
-      });
+    if (!oldContractRow) {
+      return res.status(404).json({ error: 'Tenant contract not found' });
     }
-  } else {
-    proceedWithUpdate();
-  }
-  
-  function proceedWithUpdate() {
-    db.run(
-      `UPDATE tenant_contracts SET
-        tenant_id = ?, property_id = ?, start_date = ?, end_date = ?,
-        cold_rent = ?, side_costs = ?, payment_day_of_month = ?, is_active = ?, notes = ?
-      WHERE id = ?`,
-      [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
-       paymentDayOfMonth, isActive ? 1 : 0, notes, req.params.id],
-      function(err) {
-        if (err) {
-          logError(err, { context: 'PUT /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
-          return res.status(500).json({ error: 'Internal server error' });
-        }
-        if (this.changes === 0) {
-          return res.status(404).json({ error: 'Tenant contract not found' });
-        }
-        // Fetch updated contract to return
-        db.get('SELECT * FROM tenant_contracts WHERE id = ?', [req.params.id], (err2, row) => {
-          if (err2) {
-            logError(err2, { context: 'PUT /api/tenant-contracts/:id fetch', contractId: req.params.id });
+    
+    // Validate that tenant and property exist if they are being updated
+    const totalValidations = (tenantId ? 1 : 0) + (propertyId ? 1 : 0);
+    let validationsCompleted = 0;
+    const contractIdParam = contractId;
+    
+    if (totalValidations > 0) {
+      if (tenantId) {
+        db.get('SELECT id FROM tenants WHERE id = ?', [tenantId], (err, row) => {
+          if (err) {
+            logError(err, { context: 'PUT tenant-contract tenant validation', contractId: contractIdParam });
             return res.status(500).json({ error: 'Internal server error' });
           }
-          
-          // Trigger rent automation to update payments for this contract
-          triggerRentAutomation().then(() => {
-            logRentAction(`Rent automation triggered after contract update: ${req.params.id}`);
-          }).catch((autoError) => {
-            logRentError(autoError, { context: 'post-contract-update rent automation', contractId: req.params.id });
-          });
-          
-          res.json(mapTenantContract(row));
+          if (!row) {
+            return res.status(400).json({ error: `Tenant with ID ${tenantId} does not exist` });
+          }
+          validationsCompleted++;
+          if (validationsCompleted === totalValidations) proceedWithUpdate(oldContractRow);
         });
       }
-    );
-  }
+      
+      if (propertyId) {
+        db.get('SELECT id FROM properties WHERE id = ?', [propertyId], (err, row) => {
+          if (err) {
+            logError(err, { context: 'PUT tenant-contract property validation', contractId: contractIdParam });
+            return res.status(500).json({ error: 'Internal server error' });
+          }
+          if (!row) {
+            return res.status(400).json({ error: `Property with ID ${propertyId} does not exist` });
+          }
+          validationsCompleted++;
+          if (validationsCompleted === totalValidations) proceedWithUpdate(oldContractRow);
+        });
+      }
+    } else {
+      proceedWithUpdate(oldContractRow);
+    }
+    
+    function proceedWithUpdate(oldContract) {
+      db.run(
+        `UPDATE tenant_contracts SET
+          tenant_id = ?, property_id = ?, start_date = ?, end_date = ?,
+          cold_rent = ?, side_costs = ?, payment_day_of_month = ?, is_active = ?, notes = ?
+        WHERE id = ?`,
+        [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
+         paymentDayOfMonth, isActive ? 1 : 0, notes, contractIdParam],
+        function(err) {
+          if (err) {
+            logError(err, { context: 'PUT /api/tenant-contracts/:id', contractId: contractIdParam, user: req.user?.id });
+            return res.status(500).json({ error: 'Internal server error' });
+          }
+          if (this.changes === 0) {
+            return res.status(404).json({ error: 'Tenant contract not found' });
+          }
+          // Fetch updated contract to return
+          db.get('SELECT * FROM tenant_contracts WHERE id = ?', [contractIdParam], (err2, row) => {
+            if (err2) {
+              logError(err2, { context: 'PUT /api/tenant-contracts/:id fetch', contractId: contractIdParam });
+              return res.status(500).json({ error: 'Internal server error' });
+            }
+            
+            // Trigger rent payment automation asynchronously if payment terms changed
+            handleTenantContractEvent(row, oldContract)
+              .then(result => {
+                if (result.success && result.count > 0) {
+                  console.log(`✅ Rent automation for updated contract ${row.id}: ${result.count} payments created`);
+                } else if (!result.success) {
+                  console.error(`❌ Rent automation failed for contract ${row.id}: ${result.error}`);
+                }
+              })
+              .catch(err => {
+                console.error('❌ Error in rent automation for updated contract:', err.message);
+              });
+            
+            res.json(mapTenantContract(row));
+          });
+        }
+      );
+    }
+  });
 });
 
 // DELETE /api/tenant-contracts/:id - Delete contract
