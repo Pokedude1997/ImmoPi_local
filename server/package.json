@@ -5,6 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:prod": "NODE_ENV=production node server.js",
+    "start:test": "NODE_ENV=test node server.js",
+    "stop:prod": "pkill -f 'NODE_ENV=production.*node server.js'",
+    "stop:test": "pkill -f 'NODE_ENV=test.*node server.js'",
     "backup": "node backup.js",
     "hash-password": "node auth-middleware.js hash"
   },

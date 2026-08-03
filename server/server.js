@@ -35,7 +35,8 @@ const { logRentAction, logRentError } = require('./rent-automation');
 // const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
 
 const app = express();
-const PORT = process.env.PORT || 8000;
+// Set port based on environment (NODE_ENV takes priority over PORT)
+const PORT = (process.env.NODE_ENV === 'test' ? 8001 : process.env.NODE_ENV === 'production' ? 8000 : process.env.PORT) || 8000;
 
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
   .split(',')
@@ -82,9 +83,14 @@ const uploadsDir = path.join(__dirname, 'uploads');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-const db = new sqlite3.Database('./immopi.db', (err) => {
+// Set database path based on environment
+const dbPath = process.env.NODE_ENV === 'test' 
+  ? path.join(__dirname, '..', 'databases', 'test.db') 
+  : path.join(__dirname, '..', 'databases', 'production.db');
+
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) console.error('❌ DB Error:', err.message);
-  else console.log('✅ Connected to SQLite database.');
+  else console.log(`✅ Connected to SQLite database: ${path.basename(dbPath)}`);
 });
 
 // ============================================================================

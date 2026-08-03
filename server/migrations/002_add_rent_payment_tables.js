@@ -14,7 +14,10 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const dbPath = path.join(__dirname, '../immopi.db');
+// Database path - environment aware
+const dbPath = process.env.NODE_ENV === 'test'
+  ? path.join(__dirname, '../../databases/test.db')
+  : path.join(__dirname, '../../databases/production.db');
 const db = new sqlite3.Database(dbPath);
 
 console.log('🔧 Running migration 002: Add rent payment tables...\n');

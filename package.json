@@ -8,6 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "cd server && npm start",
+    "server:prod": "cd server && npm run start:prod",
+    "server:test": "cd server && npm run start:test",
+    "server:stop:prod": "cd server && npm run stop:prod",
+    "server:stop:test": "cd server && npm run stop:test",
     "install:all": "npm install && cd server && npm install"
   },
   "dependencies": {

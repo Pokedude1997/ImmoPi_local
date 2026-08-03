@@ -6,8 +6,12 @@
  */
 
 const path = require('path');
-const dbPath = path.join(__dirname, 'immopi.db');
 const sqlite3 = require('sqlite3').verbose();
+
+// Database path - environment aware
+const dbPath = process.env.NODE_ENV === 'test'
+  ? path.join(__dirname, '..', 'databases', 'test.db')
+  : path.join(__dirname, '..', 'databases', 'production.db');
 
 /**
  * Get a database connection for idempotency checks

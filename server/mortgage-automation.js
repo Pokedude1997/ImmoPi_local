@@ -15,8 +15,10 @@ const fs = require('fs');
 const { SOURCE_TAGS } = require('./automation-utils');
 const { hasMortgageData, hasMortgageChanged } = require('./event-detector');
 
-// Database connection
-const dbPath = path.join(__dirname, 'immopi.db');
+// Database connection - environment aware
+const dbPath = process.env.NODE_ENV === 'test'
+  ? path.join(__dirname, '..', 'databases', 'test.db')
+  : path.join(__dirname, '..', 'databases', 'production.db');
 const db = new sqlite3.Database(dbPath);
 
 // Logs directory

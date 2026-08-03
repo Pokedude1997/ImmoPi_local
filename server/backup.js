@@ -20,8 +20,10 @@ if (fs.existsSync(envPath)) {
   require('dotenv').config();
 }
 
-// Configuration
-const DB_PATH = path.join(__dirname, 'immopi.db');
+// Configuration - environment aware
+const DB_PATH = process.env.NODE_ENV === 'test'
+  ? path.join(__dirname, '..', 'databases', 'test.db')
+  : path.join(__dirname, '..', 'databases', 'production.db');
 // const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
 // const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
