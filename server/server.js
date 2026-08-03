@@ -1877,7 +1877,7 @@ app.post('/api/automation/run-rent', requireAuth, async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 ImmoPi Server running on http://192.168.1.18:${PORT}`);
+  console.log(`\n🚀 ImmoPi Server running on http://0.0.0.0:${PORT}`);
   console.log(`🌐 Accessible from any device on the local network`);
   console.log(`⚡ Ready to accept requests\n`);
 });

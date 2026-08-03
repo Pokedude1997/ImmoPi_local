@@ -56,7 +56,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
     // Verify with server
     try {
-      const response = await fetch('http://192.168.1.18:8000/api/auth/check', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/auth/check`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -115,7 +115,7 @@ const AppContent = () => {
     const token = localStorage.getItem('authToken');
     
     // Call logout endpoint
-    fetch('http://192.168.1.18:8000/api/auth/logout', {
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/auth/logout`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
