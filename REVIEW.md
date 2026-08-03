@@ -1,85 +1,77 @@
 # Code Review Report
 
 - **Status:** PASSED
-- **Datum/Zeit:** 2026-08-03T07:50:00Z
+- **Datum/Zeit:** 2025-08-03 08:17:00 UTC
 
-## Review Ergebnisse
+## Gefundene Probleme & Bugs
 
-Alle in der vorherigen Review identifizierten Probleme wurden durch Commit d148c05 behoben.
+### KEINE KRITISCHEN PROBLEME - ALLE LOCALHOST REFERENZEN ERSETZT
 
-### ✅ Behobene Probleme
+Die Codebase wurde erfolgreich von localhost auf 192.168.1.18 migriert. Alle relevanten Dateien wurden geprüft:
 
-#### 1. **Start/Stop Scripts sind jetzt vollständig**
+## Verifizierte Änderungen
 
-1. **✅ FIXED** scripts/start_prod.sh - Startet jetzt sowohl Backend als auch Frontend
-   - *Lösung:* Skript startet nun `npm run dev > frontend.log 2>&1 &` für den Vite-Frontend-Server
-   - *PID-Verwaltung:* Speichert Backend- und Frontend-PIDs in `.pids/` Directory
-   - *Umgebungsvariable:* Setzt `VITE_API_URL=http://192.168.1.18:8000` für Production
+### 1. ✅ Frontend API Calls
+- **services/api.ts:22**: `API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api'`
+- **App.tsx:59,118**: fetch-Aufrufe nutzen `http://192.168.1.18:8000/api` als Fallback
+- **pages/Login.tsx:16**: Login-API-Call nutzt `http://192.168.1.18:8000/api` als Fallback
 
-2. **✅ FIXED** scripts/start_test.sh - Startet jetzt sowohl Backend als auch Frontend
-   - *Lösung:* Skript startet nun `npm run dev > frontend.log 2>&1 &` für den Vite-Frontend-Server
-   - *PID-Verwaltung:* Speichert Backend- und Frontend-PIDs in `.pids/` Directory
-   - *Umgebungsvariable:* Setzt `VITE_API_URL=http://192.168.1.18:8001` für Test
+### 2. ✅ Start Skripte
+- **scripts/start_prod.sh**: 
+  - Setzt `VITE_API_URL=http://192.168.1.18:8000`
+  - Port-Checks gegen `192.168.1.18` (Zeilen 26, 47)
+  - Ausgabe-Meldungen zeigen `192.168.1.18:8000` und `192.168.1.18:3000`
+- **scripts/start_test.sh**:
+  - Setzt `VITE_API_URL=http://192.168.1.18:8001`
+  - Port-Checks gegen `192.168.1.18` (Zeilen 25, 46)
+  - Ausgabe-Meldungen zeigen `192.168.1.18:8001` und `192.168.1.18:3000`
+- **run_immopi_final.sh**: Port-Checks gegen `192.168.1.18` (Zeilen 38, 59)
+- **run_immopi.sh**: Ausgabe zeigt `192.168.1.18:3000` und `192.168.1.18:8000`
+- **start_immopi.sh**: Ausgabe zeigt `192.168.1.18:3000`
 
-3. **✅ FIXED** scripts/stop_prod.sh - Stoppt jetzt sowohl Backend als auch Frontend
-   - *Lösung:* Liest PIDs aus `.pids/` Dateien und killt beide Prozesse
-   - *Fallback:* Nutzt `pkill -f` wenn keine PID-Dateien vorhanden sind
-   - *Sicherheit:* Räumt PID-Dateien nach dem Stoppen auf
+### 3. ✅ Server CORS Konfiguration
+- **server/server.js:41**: Fallback CORS_ORIGIN ist `http://192.168.1.18:3000,http://192.168.1.18:8000`
+- **.env:7**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **.env.example:6**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **server/.env:9**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **server/.env.example:9**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
 
-4. **✅ FIXED** scripts/stop_test.sh - Stoppt jetzt sowohl Backend als auch Frontend
-   - *Lösung:* Liest PIDs aus `.pids/` Dateien und killt beide Prozesse
-   - *Fallback:* Nutzt `pkill -f` wenn keine PID-Dateien vorhanden sind
+### 4. ✅ Vite Dev Server Konfiguration
+- **vite.config.ts:10**: `host: '0.0.0.0'` - Bindet an alle Netzwerkinterfaces
 
-#### 2. **Frontend-Unterstützung in Dual-Environment-Setup**
+### 5. ✅ Server Binding
+- **server/server.js:1879**: `app.listen(PORT, '0.0.0.0', ...)` - Server bindet an 0.0.0.0
 
-5. **✅ FIXED** VITE_API_URL Umgebungsvariable für beide Environments
-   - *Lösung:* start_prod.sh setzt `VITE_API_URL=http://192.168.1.18:8000`
-   - *Lösung:* start_test.sh setzt `VITE_API_URL=http://192.168.1.18:8001`
-   - *Frontend:* services/api.ts nutzt `import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api'`
+## Verbleibende localhost-Referenzen (Nicht kritisch)
 
-6. **✅ FIXED** API-URLs in App.tsx und pages/Login.tsx aktualisiert
-   - *Lösung:* Alle fetch-Aufrufe nutzen nun `${import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api'}`
-   - *Betroffene Dateien:* App.tsx (Zeilen 59, 118), pages/Login.tsx (Zeile 16)
+### Dokumentation
+- **readme.md**: Enthält localhost-Beispiele in Dokumentation (Zeilen 411, 622, 771, 772)
+- **scripts/MIGRATION_GUIDE.md**: Enthält localhost-Referenzen in Anleitungen
 
-#### 3. **Prozessverwaltung**
+### Log-Dateien (Runtime-Artefakte)
+- **server/server.log**: Generiert zur Laufzeit, wird bei Neu-Start überschrieben
+- **frontend.log**: Generiert zur Laufzeit, wird bei Neu-Start überschrieben
 
-7. **✅ FIXED** PID-Verwaltung implementiert
-   - *Lösung:* `.pids/` Directory wird erstellt und speichert server.pid und frontend.pid
-   - *Start-Skripte:* Speichern PIDs beim Starten der Prozesse
-   - *Stop-Skripte:* Lesen PIDs und killen gezielt die richtigen Prozesse
-   - *Cleanup:* PID-Dateien werden nach dem Stoppen gelöscht
+### CORS Konfiguration
+- Alle .env-Dateien enthalten zusätzlich localhost-Origins (http://localhost:3000, http://localhost:8000)
+  - *Begründung:* Dies ist bewusst so konfiguriert, um Flexibilität für lokale Entwicklung zu gewährleisten
+  - *Empfehlung:* Kann entfernt werden, falls ausschließlich 192.168.1.18 genutzt werden soll
 
-8. **✅ FIXED** Klare Statusmeldungen hinzugefügt
-   - *Lösung:* Skripte zeigen nun detaillierte Statusmeldungen:
-     - "🚀 Starting Production/Test Environment..."
-     - "🌐 Starting backend server..."
-     - "🎨 Starting frontend..."
-     - "✅ Backend server is running on port 8000/8001 (PID: X)"
-     - "✅ Frontend is running on port 3000 (PID: Y)"
-   - *Wartezeiten:* Skripte warten auf Port-Verfügbarkeit mit Fortschrittsanzeige
+## Final Verification: API Connectivity
+
+✅ **API-Konnektivität sollte jetzt funktionieren:**
+
+1. **Frontend** läuft auf `http://192.168.1.18:3000` (Vite dev server bindet an 0.0.0.0)
+2. **Backend** läuft auf `http://192.168.1.18:8000` (Server bindet an 0.0.0.0)
+3. **CORS** erlaubt Anfragen von `http://192.168.1.18:3000` und `http://192.168.1.18:8000`
+4. **Frontend API Calls** verwenden `http://192.168.1.18:8000/api`
+5. **Start-Skripte** setzen VITE_API_URL korrekt und checken Ports gegen 192.168.1.18
+
+**Fazit:** Alle kritischen localhost-Referenzen wurden erfolgreich durch 192.168.1.18 ersetzt. Die API-Konnektivität zwischen Frontend und Backend sollte nun über das lokale Netzwerk funktionieren.
 
 ## Test-Ergebnisse
+- Keine automatisierten Tests gefunden/ausgeführt (kein pytest, npm test, etc. verfügbar)
+- Manuelle Verifikation: Alle Konfigurationsdateien und Code-Referenzen wurden geprüft
 
-- ✅ `./scripts/start_prod.sh` - Startet Backend (Port 8000) und Frontend (Port 3000)
-- ✅ `./scripts/start_test.sh` - Startet Backend (Port 8001) und Frontend (Port 3000)
-- ✅ Frontend ist erreichbar unter http://192.168.1.18:3000
-- ✅ Backend API ist erreichbar unter http://192.168.1.18:8000/api (prod) und http://192.168.1.18:8001/api (test)
-- ✅ Frontend verbindet sich mit dem richtigen Backend basierend auf NODE_ENV
-- ✅ `./scripts/stop_prod.sh` - Stoppt beide Prozesse sauber
-- ✅ `./scripts/stop_test.sh` - Stoppt beide Prozesse sauber
-
-## Zusammenfassung
-
-**Alle 8 in der vorherigen Review identifizierten Probleme wurden behoben.**
-
-**Implementierte Lösungen:**
-1. ✅ Frontend-Server (Vite dev server) wird zusammen mit Backend gestartet
-2. ✅ Frontend-PIDs werden verwaltet und im Stop-Skript beendet
-3. ✅ Richtige Backend-URL wird dem Frontend via VITE_API_URL zur Verfügung gestellt
-4. ✅ Klare Statusmeldungen zeigen, welche Komponenten gestartet wurden
-5. ✅ PID-Dateien für zuverlässiges Prozessmanagement
-6. ✅ Port-Konfiguration für beide Environments (8000 für prod, 8001 für test)
-7. ✅ Alle API-Aufrufe im Frontend nutzen Umgebungsvariablen
-8. ✅ Stop-Skripte beenden beide Server (Backend + Frontend)
-
-**Verifizierung:** Alle Skripte wurden manuell getestet und funktionieren wie erwartet.
+---
+*Review durchgeführt durch kompromisslosen QA-Ingenieur und Security Auditor*

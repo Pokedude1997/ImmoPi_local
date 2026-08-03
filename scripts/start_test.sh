@@ -37,7 +37,7 @@ done
 
 # Start frontend
 echo "🎨 Starting frontend..."
-npm run dev > frontend.log 2>&1 &
+VITE_API_URL=http://192.168.1.18:8001/api npm run dev > frontend.log 2>&1 &
 FRONTEND_PID=$!
 
 # Wait for frontend to start
