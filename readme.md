@@ -408,7 +408,7 @@ node server.js
 📦 Initializing backup system...
 📅 Backup scheduler started
 ⏰ Schedule: Every Sunday at 2:00 AM
-🚀 ImmoPi Server running on http://localhost:8000
+🚀 ImmoPi Server running on http://192.168.1.18:8000
 ⚡ Ready to accept requests
 ```
 
@@ -619,7 +619,7 @@ node backup.js
 
 **Via API (from browser or curl):**
 ```bash
-curl -X POST http://localhost:8000/api/backup/manual \
+curl -X POST http://192.168.1.18:8000/api/backup/manual \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -768,8 +768,8 @@ hostname -I
 
 **Test locally:**
 ```bash
-curl http://localhost:3000
-curl http://localhost:8000/api/auth/check
+curl http://192.168.1.18:3000
+curl http://192.168.1.18:8000/api/auth/check
 ```
 
 **Check firewall:**
