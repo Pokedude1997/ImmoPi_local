@@ -22,7 +22,7 @@ node server.js
 You should see:
 ```
 ✅ Connected to SQLite database.
-🚀 ImmoPi Server running on http://localhost:8000
+🚀 ImmoPi Server running on http://192.168.1.18:8000
 ⚡ Ready to accept requests
 ```
 
@@ -35,7 +35,7 @@ cd ~/ImmoPi_local
 npm run dev  # or serve the built files
 ```
 
-Access your app at `http://YOUR_PI_IP:3000` (or `http://localhost:3000`)
+Access your app at `http://192.168.1.18:3000`
 
 ### Step 3: Log In
 

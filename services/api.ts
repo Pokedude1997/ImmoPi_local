@@ -18,8 +18,8 @@ import {
   PaymentMethod,
 } from '../types';
 
-// Use environment variable for API base URL, fallback to hardcoded
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Use environment variable for API base URL, fallback to static IP
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api';
 
 /**
  * Get authentication token from localStorage

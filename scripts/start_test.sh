@@ -6,11 +6,11 @@
 
 echo "🧪 Starting Test Environment..."
 echo "   Backend: NODE_ENV=test, Port: 8001, DB: databases/test.db"
-echo "   Frontend: Port: 3000, API: http://localhost:8001"
+echo "   Frontend: Port: 3000, API: http://192.168.1.18:8001"
 echo ""
 
 # Set environment for frontend to connect to test backend
-export VITE_API_URL=http://localhost:8001
+export VITE_API_URL=http://192.168.1.18:8001
 
 # Start backend server
 echo "🌐 Starting backend server..."
@@ -22,7 +22,7 @@ cd ..
 # Wait for backend to start
 echo "⏳ Waiting for backend to start on port 8001..."
 for i in {1..10}; do
-    if nc -z localhost 8001; then
+    if nc -z 192.168.1.18 8001; then
         echo "✅ Backend server is running on port 8001 (PID: $SERVER_PID)"
         break
     fi
@@ -43,7 +43,7 @@ FRONTEND_PID=$!
 # Wait for frontend to start
 echo "⏳ Waiting for frontend to start on port 3000..."
 for i in {1..15}; do
-    if nc -z localhost 3000; then
+    if nc -z 192.168.1.18 3000; then
         echo "✅ Frontend is running on port 3000 (PID: $FRONTEND_PID)"
         break
     fi
@@ -57,8 +57,8 @@ done
 
 echo ""
 echo "🎉 Test Environment is now running!"
-echo "📌 Backend: http://localhost:8001 (PID: $SERVER_PID)"
-echo "📌 Frontend: http://localhost:3000 (PID: $FRONTEND_PID)"
+echo "📌 Backend: http://192.168.1.18:8001 (PID: $SERVER_PID)"
+echo "📌 Frontend: http://192.168.1.18:3000 (PID: $FRONTEND_PID)"
 echo "📝 Logs: server.log and frontend.log"
 echo ""
 echo "💡 Press Ctrl+C to stop the application"
