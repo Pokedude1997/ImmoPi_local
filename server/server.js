@@ -38,7 +38,7 @@ const app = express();
 // Set port based on environment (NODE_ENV takes priority over PORT)
 const PORT = (process.env.NODE_ENV === 'test' ? 8001 : process.env.NODE_ENV === 'production' ? 8000 : process.env.PORT) || 8000;
 
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://192.168.1.18:3000,http://192.168.1.18:8000')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);

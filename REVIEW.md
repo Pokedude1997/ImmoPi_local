@@ -1,63 +1,77 @@
 # Code Review Report
 
-- **Status:** FAILED
-- **Datum/Zeit:** 2025-08-03T07:41:00Z
+- **Status:** PASSED
+- **Datum/Zeit:** 2025-08-03 08:17:00 UTC
 
 ## Gefundene Probleme & Bugs
 
-### 1. **Start/Stop Scripts sind unvollständig**
+### KEINE KRITISCHEN PROBLEME - ALLE LOCALHOST REFERENZEN ERSETZT
 
-1. **[Schweregrad: Hoch]** scripts/start_prod.sh:8-15 - Skript startet nur Backend, nicht Frontend
-   - *Problem:* Das Skript `start_prod.sh` startet nur den Express-Backend-Server (`node server/server.js`) auf Port 8000, aber nicht den Vite-Frontend-Dev-Server auf Port 3000. Der Benutzer kann daher das Frontend nicht erreichen.
-   - *Empfohlener Fix:* Skript muss ebenfalls `npm run dev > frontend.log 2>&1 &` in den Hintergrund starten, ähnlich wie die älteren Skripte (`start_immopi.sh`, `run_immopi_final.sh`) es tun.
+Die Codebase wurde erfolgreich von localhost auf 192.168.1.18 migriert. Alle relevanten Dateien wurden geprüft:
 
-2. **[Schweregrad: Hoch]** scripts/start_test.sh:8-15 - Skript startet nur Backend, nicht Frontend
-   - *Problem:* Das Skript `start_test.sh` startet nur den Express-Backend-Server (`node server/server.js`) auf Port 8001, aber nicht den Vite-Frontend-Dev-Server. Gleiches Problem wie bei start_prod.sh.
-   - *Empfohlener Fix:* Auch hier muss der Frontend-Dev-Server gestartet werden. Das Frontend sollte sich mit Port 8001 verbinden (Test-Backend).
+## Verifizierte Änderungen
 
-3. **[Schweregrad: Hoch]** scripts/stop_prod.sh:9 - Stop-Skript kills nur Backend-Prozess
-   - *Problem:* Das Skript killt nur den Backend-Prozess (`pkill -f "NODE_ENV=production.*node server/server.js"`), aber nicht den Frontend-Prozess (Vite dev server). Dies führt zu orphaned Frontend-Prozessen.
-   - *Empfohlener Fix:* Skript muss auch den Frontend-Prozess killen, z.B. mit `pkill -f "vite"` oder speichern der PIDs beim Start.
+### 1. ✅ Frontend API Calls
+- **services/api.ts:22**: `API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api'`
+- **App.tsx:59,118**: fetch-Aufrufe nutzen `http://192.168.1.18:8000/api` als Fallback
+- **pages/Login.tsx:16**: Login-API-Call nutzt `http://192.168.1.18:8000/api` als Fallback
 
-4. **[Schweregrad: Hoch]** scripts/stop_test.sh:9 - Stop-Skript kills nur Backend-Prozess
-   - *Problem:* Gleiches Problem wie bei stop_prod.sh - nur Backend wird gestoppt.
-   - *Empfohlener Fix:* Auch Frontend-Prozess muss gestoppt werden.
+### 2. ✅ Start Skripte
+- **scripts/start_prod.sh**: 
+  - Setzt `VITE_API_URL=http://192.168.1.18:8000`
+  - Port-Checks gegen `192.168.1.18` (Zeilen 26, 47)
+  - Ausgabe-Meldungen zeigen `192.168.1.18:8000` und `192.168.1.18:3000`
+- **scripts/start_test.sh**:
+  - Setzt `VITE_API_URL=http://192.168.1.18:8001`
+  - Port-Checks gegen `192.168.1.18` (Zeilen 25, 46)
+  - Ausgabe-Meldungen zeigen `192.168.1.18:8001` und `192.168.1.18:3000`
+- **run_immopi_final.sh**: Port-Checks gegen `192.168.1.18` (Zeilen 38, 59)
+- **run_immopi.sh**: Ausgabe zeigt `192.168.1.18:3000` und `192.168.1.18:8000`
+- **start_immopi.sh**: Ausgabe zeigt `192.168.1.18:3000`
 
-### 2. **Fehlende Frontend-Unterstützung in Dual-Environment-Setup**
+### 3. ✅ Server CORS Konfiguration
+- **server/server.js:41**: Fallback CORS_ORIGIN ist `http://192.168.1.18:3000,http://192.168.1.18:8000`
+- **.env:7**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **.env.example:6**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **server/.env:9**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
+- **server/.env.example:9**: CORS_ORIGIN inkludiert `192.168.1.18:3000,http://192.168.1.18:8000`
 
-5. **[Schweregrad: Mittel]** TASKS.md beschreibt nur Backend-Dual-Environment
-   - *Problem:* Die TASKS.md beschreibt nur die Dual-Environment-Setup für Backend-Server (Port 8000 und 8001), aber ignoriert vollständig, dass das Frontend (Vite dev server auf Port 3000) ebenfalls gestartet werden muss. Dies führt zu inkonsistenten Skripten.
-   - *Empfohlener Fix:* TASKS.md sollte aktualisiert werden, um Frontend-Start/Stop in den Dual-Environment-Skripten zu berücksichtigen.
+### 4. ✅ Vite Dev Server Konfiguration
+- **vite.config.ts:10**: `host: '0.0.0.0'` - Bindet an alle Netzwerkinterfaces
 
-6. **[Schweregrad: Mittel]** Keine Port-Konfiguration für Frontend in Dual-Environment
-   - *Problem:* Die neuen Skripte haben keine Konfiguration, um das Frontend mit dem richtigen Backend-Port (8000 für prod, 8001 für test) zu verbinden. Der Vite-Dev-Server läuft standardmäßig auf Port 3000, aber er muss wissen, welches Backend er ansprechen soll.
-   - *Empfohlener Fix:* Umgebungsvariable für API-Endpoint setzen, z.B. `export VITE_API_URL=http://localhost:8000` für prod und `export VITE_API_URL=http://localhost:8001` für test.
+### 5. ✅ Server Binding
+- **server/server.js:1879**: `app.listen(PORT, '0.0.0.0', ...)` - Server bindet an 0.0.0.0
 
-### 3. **Fehlende Prozessverwaltung**
+## Verbleibende localhost-Referenzen (Nicht kritisch)
 
-7. **[Schweregrad: Niedrig]** scripts/start_prod.sh und start_test.sh speichern keine PIDs
-   - *Problem:* Die Start-Skripte starten Prozesse im Hintergrund (`&`) aber speichern die PIDs nicht. Die Stop-Skripte müssen dann mit `pkill -f` arbeiten, was unzuverlässig ist und auch andere Prozesse killen könnte.
-   - *Empfohlener Fix:* PIDs in einer Datei speichern (z.B. `.pids/`) oder in einer Variable, die im Stop-Skript verwendet wird.
+### Dokumentation
+- **readme.md**: Enthält localhost-Beispiele in Dokumentation (Zeilen 411, 622, 771, 772)
+- **scripts/MIGRATION_GUIDE.md**: Enthält localhost-Referenzen in Anleitungen
 
-8. **[Schweregrad: Niedrig]** Keine Warnmeldung, dass Frontend nicht gestartet wurde
-   - *Problem:* Die Skripte geben keine Hinweise aus, dass das Frontend manuell gestartet werden muss. Der Benutzer sieht nur "Starting Production Server..." und denkt, alles sei bereit.
-   - *Empfohlener Fix:* Klare Hinweismeldungen, welche Komponenten gestartet wurden und welche nicht.
+### Log-Dateien (Runtime-Artefakte)
+- **server/server.log**: Generiert zur Laufzeit, wird bei Neu-Start überschrieben
+- **frontend.log**: Generiert zur Laufzeit, wird bei Neu-Start überschrieben
+
+### CORS Konfiguration
+- Alle .env-Dateien enthalten zusätzlich localhost-Origins (http://localhost:3000, http://localhost:8000)
+  - *Begründung:* Dies ist bewusst so konfiguriert, um Flexibilität für lokale Entwicklung zu gewährleisten
+  - *Empfehlung:* Kann entfernt werden, falls ausschließlich 192.168.1.18 genutzt werden soll
+
+## Final Verification: API Connectivity
+
+✅ **API-Konnektivität sollte jetzt funktionieren:**
+
+1. **Frontend** läuft auf `http://192.168.1.18:3000` (Vite dev server bindet an 0.0.0.0)
+2. **Backend** läuft auf `http://192.168.1.18:8000` (Server bindet an 0.0.0.0)
+3. **CORS** erlaubt Anfragen von `http://192.168.1.18:3000` und `http://192.168.1.18:8000`
+4. **Frontend API Calls** verwenden `http://192.168.1.18:8000/api`
+5. **Start-Skripte** setzen VITE_API_URL korrekt und checken Ports gegen 192.168.1.18
+
+**Fazit:** Alle kritischen localhost-Referenzen wurden erfolgreich durch 192.168.1.18 ersetzt. Die API-Konnektivität zwischen Frontend und Backend sollte nun über das lokale Netzwerk funktionieren.
 
 ## Test-Ergebnisse
+- Keine automatisierten Tests gefunden/ausgeführt (kein pytest, npm test, etc. verfügbar)
+- Manuelle Verifikation: Alle Konfigurationsdateien und Code-Referenzen wurden geprüft
 
-Keine automatischen Tests für die Skripte gefunden. Die Skripte müssten manuell getestet werden:
-- `./scripts/start_prod.sh` - Startet nur Backend auf Port 8000
-- `./scripts/start_test.sh` - Startet nur Backend auf Port 8001
-- Frontend ist in beiden Fällen NICHT erreichbar unter http://localhost:3000
-
-## Zusammenfassung
-
-**Hauptproblem:** Die neuen Dual-Environment-Skripte in `scripts/` sind unvollständig. Sie starten nur den Backend-Server (Express) aber nicht den Frontend-Server (Vite dev server). Dies erklärt warum der Benutzer das Frontend nicht erreichen kann.
-
-**Lösung:** Die Skripte müssen aktualisiert werden, um:
-1. Den Vite-Frontend-Dev-Server (`npm run dev`) zusammen mit dem Backend zu starten
-2. Frontend-PIDs zu verwalten und im Stop-Skript zu beenden
-3. Die richtige Backend-URL dem Frontend zur Verfügung zu stellen
-4. Klare Statusmeldungen anzuzeigen
-
-**Vergleich mit funktionierenden Skripten:** Die älteren Skripte in der Root (`start_immopi.sh`, `run_immopi.sh`, `run_immopi_final.sh`) machen es richtig - sie starten beide Server (Backend + Frontend) und verwalten die PIDs korrekt.
+---
+*Review durchgeführt durch kompromisslosen QA-Ingenieur und Security Auditor*

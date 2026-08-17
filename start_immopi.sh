@@ -23,7 +23,7 @@ FRONTEND_PID=$!
 echo "✅ ImmoPi application is now running!"
 echo "📌 Backend server PID: $SERVER_PID (port 8000)"
 echo "📌 Frontend PID: $FRONTEND_PID (port 3000)"
-echo "🌐 Access the application at: http://localhost:3000"
+echo "🌐 Access the application at: http://192.168.1.18:3000"
 echo "📝 Logs are being written to server.log and frontend.log"
 
 # Function to cleanup on script exit

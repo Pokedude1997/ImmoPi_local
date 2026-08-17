@@ -35,7 +35,7 @@ cd ..
 # Wait for server to start
 echo "⏳ Waiting for server to start (checking port 8000)..."
 for i in {1..10}; do
-    if nc -z localhost 8000; then
+    if nc -z 192.168.1.18 8000; then
         echo "✅ Backend server is running on port 8000"
         break
     fi
@@ -56,7 +56,7 @@ FRONTEND_PID=$!
 # Wait for frontend to start
 echo "⏳ Waiting for frontend to start (checking port 3000)..."
 for i in {1..15}; do
-    if nc -z localhost 3000; then
+    if nc -z 192.168.1.18 3000; then
         echo "✅ Frontend is running on port 3000"
         break
     fi
@@ -70,8 +70,8 @@ done
 
 echo ""
 echo "🎉 ImmoPi application is now running!"
-echo "📌 Backend: http://localhost:8000 (PID: $SERVER_PID)"
-echo "📌 Frontend: http://localhost:3000 (PID: $FRONTEND_PID)"
+echo "📌 Backend: http://192.168.1.18:8000 (PID: $SERVER_PID)"
+echo "📌 Frontend: http://192.168.1.18:3000 (PID: $FRONTEND_PID)"
 echo "📝 Logs: server.log and frontend.log"
 echo ""
 echo "💡 Press Ctrl+C to stop the application"

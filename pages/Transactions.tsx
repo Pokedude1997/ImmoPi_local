@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
 import { api } from '../services/api';
 import { Transaction, CategoryType, Property, Category } from '../types';
-import { Plus, Download, Search, Trash2, X, Calendar, Activity } from 'lucide-react';
+import { Plus, Download, Search, Trash2, X, Calendar, Activity, Pencil } from 'lucide-react';
 
 export const Transactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -10,6 +10,8 @@ export const Transactions = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [filter, setFilter] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,6 +48,40 @@ export const Transactions = () => {
       } catch (error) {
         console.error('Failed to delete transaction:', error);
       }
+    }
+  };
+
+  const handleEdit = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const catId = formData.get('categoryId') as string;
+    const cat = categories.find(c => c.id === catId);
+
+    if (!editingTransaction) return;
+
+    try {
+      await api.updateTransaction(editingTransaction.id, {
+        date: formData.get('date') as string,
+        amount: Number(formData.get('amount')),
+        currency: formData.get('currency') as string,
+        description: formData.get('description') as string,
+        categoryId: catId,
+        type: cat?.type || editingTransaction.type,
+        propertyId: formData.get('propertyId') as string,
+        counterpartyId: formData.get('counterpartyId') as string || undefined,
+        documentId: formData.get('documentId') as string || undefined,
+      });
+      const updatedTx = await api.getTransactions();
+      setTransactions(updatedTx);
+      setIsEditModalOpen(false);
+      setEditingTransaction(null);
+    } catch (error) {
+      console.error('Failed to update transaction:', error);
     }
   };
 
@@ -167,12 +203,22 @@ export const Transactions = () => {
                     {t.type === CategoryType.INCOME ? '+' : '-'} {t.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })} {t.currency}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button 
-                      onClick={() => handleDelete(t.id)} 
-                      className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={() => handleEdit(t)} 
+                        className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Edit"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(t.id)} 
+                        className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -231,6 +277,55 @@ export const Transactions = () => {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-50">
                 <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>Discard</Button>
                 <Button type="submit">Commit Transaction</Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {isEditModalOpen && editingTransaction && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-xl p-0 overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6 bg-white border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">Edit Transaction</h2>
+              <button onClick={() => { setIsEditModalOpen(false); setEditingTransaction(null); }} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleUpdate} className="p-8 space-y-6 bg-white">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <Input name="date" type="date" label="Value Date" defaultValue={editingTransaction.date} required />
+                 <Input name="amount" type="number" step="0.01" label="Amount" defaultValue={editingTransaction.amount.toString()} placeholder="0.00" required />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <Input name="currency" label="Currency" defaultValue={editingTransaction.currency} required />
+                 <Select name="categoryId" label="Accounting Category" defaultValue={editingTransaction.categoryId} required>
+                    <option value="">Select Category...</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
+                 </Select>
+              </div>
+              
+              <Select name="propertyId" label="Linked Property" defaultValue={editingTransaction.propertyId} required>
+                  <option value="">Select Property...</option>
+                  {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+              
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-slate-700">Internal Description</label>
+                <textarea 
+                  name="description" 
+                  className="block w-full rounded-xl border-slate-300 bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-4 min-h-[100px]"
+                  placeholder="Details of the payment..."
+                  defaultValue={editingTransaction.description}
+                  required
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-50">
+                <Button type="button" variant="ghost" onClick={() => { setIsEditModalOpen(false); setEditingTransaction(null); }}>Discard</Button>
+                <Button type="submit">Update Transaction</Button>
               </div>
             </form>
           </Card>
