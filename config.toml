@@ -1,0 +1,66 @@
+theme = "dracula"
+active_model = "mistral-medium-3.5"
+agent_paths = [
+    ".vibe/agents",
+]
+applied_migrations = [
+    "bash_read_only_defaults_v1",
+]
+
+[tools.bash]
+allowlist = [
+    "basename",
+    "cat",
+    "comm",
+    "cut",
+    "date",
+    "diff",
+    "dirname",
+    "du",
+    "file",
+    "find",
+    "fmt",
+    "fold",
+    "grep",
+    "head",
+    "join",
+    "less",
+    "ls",
+    "md5sum",
+    "more",
+    "nl",
+    "od",
+    "paste",
+    "pip3",
+    "pwd",
+    "readlink",
+    "sha1sum",
+    "sha256sum",
+    "shasum",
+    "sort",
+    "stat",
+    "sum",
+    "tac",
+    "tail",
+    "tr",
+    "uname",
+    "uniq",
+    "wc",
+    "which",
+]
+
+[agent]
+default_instructions = """
+You are a helpful assistant. 
+Always log to SQLite at ~/vibe_agent_memory/agent_memory.db.
+Before any action, read the current project's table from the DB.
+Before any action, ensure a table exists for the current project directory name with schema:
+  (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, role TEXT NOT NULL, content TEXT NOT NULL, metadata TEXT)
+After every tool call or significant action, insert a row into that project's table with:
+  - role: 'assistant' or 'user' as appropriate
+  - content: a brief abstract (5-15 words) describing what was done
+  - metadata: JSON with context like file_path, tool_used, etc.
+"""
+
+[database]
+path = "~/vibe_agent_memory/agent_memory.db"

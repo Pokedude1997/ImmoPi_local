@@ -30,10 +30,11 @@
 
 ### 2. Database Schema Changes
 - **New Table**: `users` with columns: `id (PK)`, `username (UNIQUE)`, `password_hash`, `is_admin (BOOLEAN)`, `created_at`, `updated_at`
-- **Existing Tables**: Add `user_id` column (FOREIGN KEY to `users.id`) to ALL tables:
+- **Existing Tables**: Add `user_id` column (FOREIGN KEY to `users.id`) to data tables:
   - properties, tenants, categories, counterparties, transactions, documents
-  - recurring_payments, tenant_contracts, rent_payments, settings, automation_state, idempotency_keys
-- **Indexing**: Add index on `user_id` for all tables to optimize queries
+  - recurring_payments, tenant_contracts, rent_payments, idempotency_keys
+- **Global Tables (NO user_id)**: `settings` and `automation_state` remain global with singleton rows (id=1)
+- **Indexing**: Add index on `user_id` for all user-associated tables to optimize queries
 - **Cascading**: ON DELETE CASCADE for user_id foreign keys (when user is deleted, their data is deleted)
 
 ### 3. Data Isolation Strategy
@@ -71,6 +72,13 @@
 - Admin can see all users and their data
 - Admin can create/edit/delete users
 - Admin can impersonate users for support
+
+### 8. Settings Access Control (ADMIN-ONLY)
+- **Architecture**: Settings table remains **GLOBAL** (singleton, id=1) - NOT per-user
+- **Backend**: Settings endpoints (`/api/settings`) use `requireAdmin` middleware, NOT user filtering
+- **Frontend**: Settings page uses `ProtectedRoute` with `adminOnly={true}` prop
+- **Database**: Settings and automation_state tables do NOT get user_id columns
+- **Rationale**: Settings are application-wide configuration that should only be managed by admin
 
 ---
 
@@ -131,17 +139,23 @@
   - [ ] Create `users` table with all required columns
   - [ ] Create indexes on `username` (unique) and `id`
 - [ ] Create migration script `migrations/002_add_user_id_columns.sql`:
-  - [ ] Add `user_id INTEGER` column to ALL existing tables (nullable initially)
+  - [ ] Add `user_id INTEGER` column to following tables (nullable initially):
+    - properties, tenants, categories, counterparties, transactions, documents, recurring_payments, tenant_contracts, rent_payments, idempotency_keys
+  - [ ] EXCLUDE: settings, automation_state (these remain global/admin-only)
   - [ ] Add foreign key constraints: `FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`
-  - [ ] Add indexes on `user_id` for all tables
+  - [ ] Add indexes on `user_id` for all modified tables
 - [ ] Create migration script `migrations/003_create_admin_user.sql`:
   - [ ] Insert admin user with username from `ADMIN_USERNAME` env var (default: 'admin')
   - [ ] Insert hashed password from `APP_PASSWORD` env var (use bcrypt)
   - [ ] Set `is_admin = true`
 - [ ] Create migration script `migrations/004_migrate_existing_data.sql`:
-  - [ ] Update ALL tables to set `user_id = 1` (admin user ID)
+  - [ ] Update data tables to set `user_id = 1` (admin user ID):
+    - properties, tenants, categories, counterparties, transactions, documents, recurring_payments, tenant_contracts, rent_payments, idempotency_keys
+  - [ ] EXCLUDE: settings and automation_state tables (remain global)
 - [ ] Create migration script `migrations/005_make_user_id_not_null.sql`:
-  - [ ] Alter all tables to make `user_id` NOT NULL with default = 1
+  - [ ] Alter data tables to make `user_id` NOT NULL with default = 1:
+    - properties, tenants, categories, counterparties, transactions, documents, recurring_payments, tenant_contracts, rent_payments, idempotency_keys
+  - [ ] EXCLUDE: settings and automation_state tables
   - [ ] Remove default constraint after migration
 - [ ] Create Node.js migration runner script (`migrations/run.js`):
   - [ ] Reads all SQL files in order
@@ -331,17 +345,27 @@ For each existing route in `/server/server.js`:
 - [ ] PUT `/api/rent-payments/:id` - Verify ownership
 - [ ] DELETE `/api/rent-payments/:id` - Verify ownership
 
-**Settings Routes**
-- [ ] GET `/api/settings` - Filter by user_id (each user has their own settings)
-- [ ] PUT `/api/settings` - Upsert with user_id
+**Settings Routes (ADMIN-ONLY)**
+- [ ] GET `/api/settings` - Admin-only, NO user_id filter (global singleton settings)
+- [ ] PUT `/api/settings` - Admin-only, updates global settings row (id=1)
 
-**Automation State & Idempotency Keys**
-- [ ] GET `/api/automation-state` - Filter by user_id
-- [ ] POST `/api/automation-state` - Add user_id
+**Automation State (GLOBAL/ADMIN-ONLY)**
+- [ ] GET `/api/automation-state` - Admin-only, NO user_id filter (global singleton)
+- [ ] POST `/api/automation-state` - Admin-only, updates global state
+
+**Idempotency Keys**
 - [ ] GET `/api/idempotency-keys` - Filter by user_id (if exposed via API)
 - [ ] POST `/api/idempotency-keys` - Add user_id
 
-#### Admin Override
+#### Admin-Only Routes
+- [ ] Create `requireAdmin` middleware that rejects non-admin users
+- [ ] Apply `requireAdmin` middleware to these routes:
+  - GET `/api/settings`
+  - PUT `/api/settings`
+  - GET `/api/automation-state`
+  - POST `/api/automation-state`
+
+#### Admin Override (for user-scoped data)
 - [ ] Modify all queries to include admin bypass logic:
   ```sql
   WHERE user_id = ? OR (? = 1)  -- Assuming admin has is_admin = true (1)
@@ -518,9 +542,11 @@ For each existing route in `/server/server.js`:
   - [ ] No changes needed to display logic (data already filtered by backend)
 
 #### Settings & Configuration
-- [ ] Update settings page:
-  - [ ] Note: Settings are now per-user
-  - [ ] No code changes needed (backend handles filtering)
+- [ ] Update settings page to be ADMIN-ONLY:
+  - [ ] Add `adminOnly={true}` prop to Settings ProtectedRoute
+  - [ ] Update ProtectedRoute component to check user.isAdmin flag
+  - [ ] Redirect non-admin users to dashboard
+  - [ ] Settings remain global (singleton table, id=1)
 
 ### Deliverables
 - Complete frontend authentication flow
@@ -994,7 +1020,7 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_username ON users(username);
 
--- Example of modified table (all tables follow same pattern)
+-- Example of modified table (most tables follow this pattern)
 CREATE TABLE properties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
@@ -1007,6 +1033,18 @@ CREATE TABLE properties (
 );
 
 CREATE INDEX idx_properties_user_id ON properties(user_id);
+
+-- GLOBAL TABLES (NO user_id column) - remain singleton, admin-only access
+CREATE TABLE settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  currency TEXT DEFAULT 'EUR',
+  taxYear INTEGER DEFAULT 2026
+);
+
+CREATE TABLE automation_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  lastMortgageRun TEXT
+);
 ```
 
 ---
