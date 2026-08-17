@@ -167,16 +167,38 @@ export const api = {
   },
 
   async createTransaction(data: Omit<Transaction, 'id'>): Promise<Transaction> {
+    const toSnakeCase = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const result: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          result[snakeKey] = toSnakeCase(obj[key]);
+        }
+      }
+      return result;
+    };
     return apiRequest<Transaction>('/transactions', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(toSnakeCase(data)),
     });
   },
 
   async updateTransaction(id: string | number, data: Partial<Transaction>): Promise<Transaction> {
+    const toSnakeCase = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const result: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          result[snakeKey] = toSnakeCase(obj[key]);
+        }
+      }
+      return result;
+    };
     return apiRequest<Transaction>(`/transactions/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(toSnakeCase(data)),
     });
   },
 
