@@ -48,27 +48,29 @@ function createScopedGet(db) {
  * Apply user filter to a SELECT query
  * @param {string} query - Original query (should start with SELECT)
  * @param {Object} req - Express request object with user context
- * @returns {string} Query with user_id filter added
+ * @returns {Object} { query: string, params: Array } with parameterized query
  */
 function applyUserFilterToSelect(query, req) {
+  const params = [];
+  
   if (!req || !req.userId) {
-    return query;
+    return { query, params };
   }
   
   if (req.isAdmin || req.canBypassUserFilter) {
-    return query; // Admin sees all
+    return { query, params };
   }
   
   // Find the position of the first WHERE clause or end of query
-  const wherePos = query.toUpperCase().indexOf(' WHERE ');
-  const orderByPos = query.toUpperCase().indexOf(' ORDER BY ');
-  const limitPos = query.toUpperCase().indexOf(' LIMIT ');
+  const upperQuery = query.toUpperCase();
+  const wherePos = upperQuery.indexOf(' WHERE ');
+  const orderByPos = upperQuery.indexOf(' ORDER BY ');
+  const limitPos = upperQuery.indexOf(' LIMIT ');
   
   let insertPos;
   if (wherePos !== -1) {
     // Append to existing WHERE clause with AND
-    insertPos = query.length;
-    return query + ` AND user_id = ${req.userId}`;
+    return { query: query + ' AND user_id = ?', params: [...params, req.userId] };
   } else {
     // Find where to insert WHERE clause
     const positions = [orderByPos, limitPos].filter(p => p !== -1);
@@ -77,7 +79,10 @@ function applyUserFilterToSelect(query, req) {
     } else {
       insertPos = query.length;
     }
-    return query.slice(0, insertPos) + ` WHERE user_id = ${req.userId}` + query.slice(insertPos);
+    return { 
+      query: query.slice(0, insertPos) + ' WHERE user_id = ?' + query.slice(insertPos),
+      params: [...params, req.userId] 
+    };
   }
 }
 

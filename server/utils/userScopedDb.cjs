@@ -37,13 +37,11 @@ function createUserScopedDb(db, req) {
       const upperSql = sql.toUpperCase().trim();
       
       if (shouldFilter && upperSql.startsWith('SELECT')) {
-        // Apply user filter
-        const filteredSql = applyUserFilterToSelect(sql, req);
-        // Add userId to params if needed
-        const filteredParams = filteredSql.includes('user_id = ?') 
-          ? [...params, userId] 
-          : params;
-        return db.all(filteredSql, filteredParams, callback);
+        // Apply user filter - now returns { query, params }
+        const { query: filteredSql, params: filterParams } = applyUserFilterToSelect(sql, req);
+        // Combine the params
+        const allParams = [...params, ...filterParams];
+        return db.all(filteredSql, allParams, callback);
       }
       
       // For non-SELECT queries or admin users, use original
@@ -58,11 +56,9 @@ function createUserScopedDb(db, req) {
       const upperSql = sql.toUpperCase().trim();
       
       if (shouldFilter && upperSql.startsWith('SELECT')) {
-        const filteredSql = applyUserFilterToSelect(sql, req);
-        const filteredParams = filteredSql.includes('user_id = ?') 
-          ? [...params, userId] 
-          : params;
-        return db.get(filteredSql, filteredParams, callback);
+        const { query: filteredSql, params: filterParams } = applyUserFilterToSelect(sql, req);
+        const allParams = [...params, ...filterParams];
+        return db.get(filteredSql, allParams, callback);
       }
       
       return db.get(sql, params, callback);

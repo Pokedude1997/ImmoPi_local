@@ -42,23 +42,42 @@ const authRoutes = require('./routes/auth.cjs');
 const userRoutes = require('./routes/users.cjs');
 
 // Helper function to add user_id filter to SELECT queries
+// Returns { query: string, params: Array } to prevent SQL injection
 function addUserFilter(query, req) {
-  if (!req || !req.userId) return query;
-  if (req.isAdmin || req.canBypassUserFilter) return query;
+  const params = [];
+  
+  if (!req || !req.userId) {
+    return { query, params };
+  }
+  
+  if (req.isAdmin || req.canBypassUserFilter) {
+    return { query, params };
+  }
   
   const upperQuery = query.toUpperCase();
+  
   if (upperQuery.includes(' WHERE ')) {
-    return query + ` AND user_id = ${req.userId}`;
+    return { 
+      query: query + ' AND user_id = ?', 
+      params: [...params, req.userId] 
+    };
   } else if (upperQuery.includes(' ORDER BY ') || upperQuery.includes(' LIMIT ') || upperQuery.includes(' GROUP BY ')) {
     // Find the position of the first keyword after SELECT
     const keywords = [' ORDER BY ', ' LIMIT ', ' GROUP BY '];
     const positions = keywords.map(k => upperQuery.indexOf(k)).filter(p => p !== -1);
     if (positions.length > 0) {
       const insertPos = Math.min(...positions);
-      return query.slice(0, insertPos) + ` WHERE user_id = ${req.userId}` + query.slice(insertPos);
+      return { 
+        query: query.slice(0, insertPos) + ' WHERE user_id = ?' + query.slice(insertPos),
+        params: [...params, req.userId] 
+      };
     }
   }
-  return query + ` WHERE user_id = ${req.userId}`;
+  
+  return { 
+    query: query + ' WHERE user_id = ?', 
+    params: [...params, req.userId] 
+  };
 }
 
 // Helper to add user_id to INSERT/UPDATE data
@@ -623,8 +642,7 @@ app.delete('/api/properties/:id', requireAuth, (req, res) => {
 // ============================================================================
 
 app.get('/api/tenants', requireAuth, (req, res) => {
-  const query = addUserFilter('SELECT * FROM tenants', req);
-  const params = req.isAdmin || req.canBypassUserFilter ? [] : [req.userId];
+  const { query, params } = addUserFilter('SELECT * FROM tenants', req);
   
   db.all(query, params, (err, rows) => {
     if (err) {
