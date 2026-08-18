@@ -16,7 +16,10 @@ const cookieParser = require('cookie-parser');
 const rootEnvPath = path.resolve(__dirname, '../.env');
 require('dotenv').config({ path: rootEnvPath });
 
-const { login, logout, requireAuth } = require('./auth-middleware');
+// New authentication system
+const { requireAuth, requireAdmin, authenticate, userScope } = require('./middleware/auth.cjs');
+// Old auth-middleware kept for backward compatibility during transition
+const { login: oldLogin, logout: oldLogout } = require('./auth-middleware');
 const { startMortgageScheduler, handlePropertyMortgageEvent } = require('./mortgage-automation');
 const { hasMortgageChanged, hasMortgageData, hasRecurringPaymentChanged } = require('./event-detector');
 const { startRecurringScheduler, handleRecurringPaymentEvent } = require('./recurring-automation');
@@ -33,6 +36,44 @@ const { logRentAction, logRentError } = require('./rent-automation');
 // const { performBackup, startBackupScheduler } = require('./backup');
 // const { validateAndSanitize } = require('./ai-validator');
 // const { uploadDocument, getDocumentLink, deleteDocument, initializeDriveClient } = require('./drive-storage');
+
+// New auth and user routes
+const authRoutes = require('./routes/auth.cjs');
+const userRoutes = require('./routes/users.cjs');
+
+// Helper function to add user_id filter to SELECT queries
+function addUserFilter(query, req) {
+  if (!req || !req.userId) return query;
+  if (req.isAdmin || req.canBypassUserFilter) return query;
+  
+  const upperQuery = query.toUpperCase();
+  if (upperQuery.includes(' WHERE ')) {
+    return query + ` AND user_id = ${req.userId}`;
+  } else if (upperQuery.includes(' ORDER BY ') || upperQuery.includes(' LIMIT ') || upperQuery.includes(' GROUP BY ')) {
+    // Find the position of the first keyword after SELECT
+    const keywords = [' ORDER BY ', ' LIMIT ', ' GROUP BY '];
+    const positions = keywords.map(k => upperQuery.indexOf(k)).filter(p => p !== -1);
+    if (positions.length > 0) {
+      const insertPos = Math.min(...positions);
+      return query.slice(0, insertPos) + ` WHERE user_id = ${req.userId}` + query.slice(insertPos);
+    }
+  }
+  return query + ` WHERE user_id = ${req.userId}`;
+}
+
+// Helper to add user_id to INSERT/UPDATE data
+function addUserIdToData(data, req) {
+  if (!req || !req.userId) return data;
+  if (data.user_id !== undefined) return data;
+  return { ...data, user_id: req.userId };
+}
+
+// Helper to verify ownership
+function verifyOwnership(resource, req) {
+  if (!resource || !req) return false;
+  if (req.isAdmin || req.canBypassUserFilter) return true;
+  return resource.user_id === req.userId;
+}
 
 const app = express();
 // Set port based on environment (NODE_ENV takes priority over PORT)
@@ -58,6 +99,10 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
+
+// Apply userScope middleware to all /api routes
+// authenticate is applied per-route in each route file
+app.use('/api', userScope);
 
 // Serve static files from root directory for frontend, but exclude /api routes
 app.use((req, res, next) => {
@@ -325,14 +370,22 @@ db.serialize(() => {
 });
 
 // ============================================================================
-// AUTHENTICATION
+// AUTHENTICATION (New JWT-based system)
 // ============================================================================
 
-app.post('/api/auth/login', async (req, res) => {
+// Use new auth routes (these handle their own auth)
+app.use('/api/auth', authRoutes);
+app.use('/api/users', requireAuth, requireAdmin, userRoutes);
+
+// ============================================================================
+// OLD AUTHENTICATION (Kept for backward compatibility during transition)
+// ============================================================================
+
+app.post('/api/auth/login-old', async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
   
-  const result = await login(password);
+  const result = await oldLogin(password);
   if (result.success) {
     res.cookie('sessionToken', result.token, {
       httpOnly: true,
@@ -345,23 +398,31 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout-old', (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.sessionToken;
-  logout(token);
+  oldLogout(token);
   res.clearCookie('sessionToken');
   res.json({ success: true });
 });
 
-app.get('/api/auth/check', requireAuth, (req, res) => {
-  res.json({ authenticated: true });
-});
+// ============================================================================
 
 // ============================================================================
 // PROPERTIES CRUD
 // ============================================================================
 
 app.get('/api/properties', requireAuth, (req, res) => {
-  db.all('SELECT * FROM properties', [], (err, rows) => {
+  // Build query with user filter
+  let query = 'SELECT * FROM properties';
+  const params = [];
+  
+  // Add user filter (admin can see all, regular users see only their own)
+  if (!req.isAdmin && !req.canBypassUserFilter && req.userId) {
+    query += ' WHERE user_id = ?';
+    params.push(req.userId);
+  }
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
       logError(err, { context: 'GET /api/properties', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
@@ -562,7 +623,10 @@ app.delete('/api/properties/:id', requireAuth, (req, res) => {
 // ============================================================================
 
 app.get('/api/tenants', requireAuth, (req, res) => {
-  db.all('SELECT * FROM tenants', [], (err, rows) => {
+  const query = addUserFilter('SELECT * FROM tenants', req);
+  const params = req.isAdmin || req.canBypassUserFilter ? [] : [req.userId];
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
       logError(err, { context: 'GET /api/tenants', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
@@ -589,9 +653,13 @@ app.post('/api/tenants', requireAuth, (req, res) => {
   const firstName = nameParts[0] || '';
   const lastName = nameParts[1] || '';
   
+  // Add user_id to data
+  const data = { firstName, lastName, property_id: propertyId, leaseStart: startDate, leaseEnd: endDate, isCurrent: isCurrent ? 1 : 0, notes };
+  const dataWithUserId = addUserIdToData(data, req);
+  
   db.run(
-    'INSERT INTO tenants (firstName, lastName, property_id, leaseStart, leaseEnd, isCurrent, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [firstName, lastName, propertyId, startDate, endDate, isCurrent ? 1 : 0, notes],
+    'INSERT INTO tenants (firstName, lastName, property_id, leaseStart, leaseEnd, isCurrent, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [dataWithUserId.firstName, dataWithUserId.lastName, dataWithUserId.property_id, dataWithUserId.leaseStart, dataWithUserId.leaseEnd, dataWithUserId.isCurrent, dataWithUserId.notes, dataWithUserId.user_id],
     function(err) {
       if (err) {
         logError(err, { context: 'POST /api/tenants', user: req.user?.id });
@@ -1007,24 +1075,25 @@ app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
 // SETTINGS
 // ============================================================================
 
-app.get('/api/settings', requireAuth, (req, res) => {
+// Settings routes are ADMIN-ONLY (global settings, not per-user)
+app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
   db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'database operation', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     res.json(row || { currency: 'EUR', taxYear: 2026 /* googleDriveFolderId: '' */ });
   });
 });
 
-app.put('/api/settings', requireAuth, (req, res) => {
+app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const { currency, taxYear /* googleDriveFolderId */ } = req.body;
   db.run(
     'UPDATE settings SET currency=?, taxYear=? WHERE id=1',
     [currency, taxYear /* , googleDriveFolderId */],
     function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'database operation', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       res.json({ success: true });
