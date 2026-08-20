@@ -1,3 +1,13 @@
+/**
+ * @deprecated
+ * This file is DEPRECATED. The application now uses a backend API with SQLite database.
+ * All data storage should go through the api.ts service layer, not localStorage.
+ * This file is kept only for reference and should not be used in new code.
+ * 
+ * DO NOT USE: db.get*, db.save*, or any functions from this module.
+ * USE INSTEAD: api.get* and api.create* from '../services/api' 
+ */
+
 import {
   Property,
   Tenant,
@@ -88,6 +98,7 @@ function saveStorage(data: StorageData): StorageData {
 
 const db = {
   getProperties(): Property[] {
+    console.error('DEPRECATED: storage.ts db.getProperties() should not be used. Use api.getProperties() from api.ts instead.');
     return loadStorage().properties;
   },
 

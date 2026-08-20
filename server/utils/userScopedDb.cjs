@@ -131,25 +131,12 @@ function createUserScopedDb(db, req) {
  * @param {Object} data - Data to insert
  * @param {Object} req - Express request
  * @param {Function} callback - Callback
+ * @deprecated USE inline addUserIdToData() instead - This function has SQL injection vulnerabilities
  */
 function userScopedInsert(db, table, data, req, callback) {
-  const scopedDb = createUserScopedDb(db, req);
-  const dataWithUserId = scopedDb.addUserId(data);
-  
-  // Build INSERT query
-  const columns = Object.keys(dataWithUserId).join(', ');
-  const placeholders = Object.keys(dataWithUserId).map(() => '?').join(', ');
-  const values = Object.values(dataWithUserId);
-  
-  const sql = `INSERT INTO ${table} (${columns}) VALUES (${placeholders})`;
-  
-  db.run(sql, values, function(err) {
-    if (err) {
-      callback(err);
-    } else {
-      callback(null, { id: this.lastID, ...dataWithUserId });
-    }
-  });
+  // DEPRECATED: This function has SQL injection vulnerabilities due to dynamic table/column names
+  // Use inline addUserIdToData() with static queries instead
+  callback(new Error('DEPRECATED: Use addUserIdToData() with static queries'));
 }
 
 /**
@@ -160,47 +147,12 @@ function userScopedInsert(db, table, data, req, callback) {
  * @param {Object} data - Data to update
  * @param {Object} req - Express request
  * @param {Function} callback - Callback
+ * @deprecated USE inline verifyOwnership() and static queries instead - This function has SQL injection vulnerabilities
  */
 function userScopedUpdate(db, table, id, data, req, callback) {
-  const scopedDb = createUserScopedDb(db, req);
-  const dataWithUserId = scopedDb.addUserId(data);
-  
-  // First, verify ownership if not admin
-  if (!scopedDb.isAdmin && !scopedDb.canBypass) {
-    // Get the resource first to check ownership
-    db.get(`SELECT user_id FROM ${table} WHERE id = ?`, [id], (err, row) => {
-      if (err) {
-        return callback(err);
-      }
-      if (!row) {
-        return callback(new Error('Resource not found'));
-      }
-      if (!scopedDb.verifyOwnership(row)) {
-        return callback(new Error('Forbidden'));
-      }
-      // Proceed with update
-      proceedWithUpdate();
-    });
-  } else {
-    proceedWithUpdate();
-  }
-  
-  function proceedWithUpdate() {
-    const updates = Object.keys(dataWithUserId).map(k => `${k} = ?`).join(', ');
-    const values = [...Object.values(dataWithUserId), id];
-    
-    const sql = `UPDATE ${table} SET ${updates} WHERE id = ?`;
-    
-    db.run(sql, values, function(err) {
-      if (err) {
-        callback(err);
-      } else if (this.changes === 0) {
-        callback(new Error('Resource not found'));
-      } else {
-        callback(null, { id, ...dataWithUserId });
-      }
-    });
-  }
+  // DEPRECATED: This function has SQL injection vulnerabilities due to dynamic table/column names
+  // Use inline verifyOwnership() with static queries instead
+  callback(new Error('DEPRECATED: Use verifyOwnership() with static queries'));
 }
 
 /**
@@ -210,41 +162,12 @@ function userScopedUpdate(db, table, id, data, req, callback) {
  * @param {number} id - Resource ID
  * @param {Object} req - Express request
  * @param {Function} callback - Callback
+ * @deprecated USE inline verifyOwnership() and static queries instead - This function has SQL injection vulnerabilities
  */
 function userScopedDelete(db, table, id, req, callback) {
-  const scopedDb = createUserScopedDb(db, req);
-  
-  // First, verify ownership if not admin
-  if (!scopedDb.isAdmin && !scopedDb.canBypass) {
-    // Get the resource first to check ownership
-    db.get(`SELECT user_id FROM ${table} WHERE id = ?`, [id], (err, row) => {
-      if (err) {
-        return callback(err);
-      }
-      if (!row) {
-        return callback(new Error('Resource not found'));
-      }
-      if (!scopedDb.verifyOwnership(row)) {
-        return callback(new Error('Forbidden'));
-      }
-      // Proceed with delete
-      proceedWithDelete();
-    });
-  } else {
-    proceedWithDelete();
-  }
-  
-  function proceedWithDelete() {
-    db.run(`DELETE FROM ${table} WHERE id = ?`, [id], function(err) {
-      if (err) {
-        callback(err);
-      } else if (this.changes === 0) {
-        callback(new Error('Resource not found'));
-      } else {
-        callback(null, { deleted: true });
-      }
-    });
-  }
+  // DEPRECATED: This function has SQL injection vulnerabilities due to dynamic table names
+  // Use inline verifyOwnership() with static queries instead
+  callback(new Error('DEPRECATED: Use verifyOwnership() with static queries'));
 }
 
 /**

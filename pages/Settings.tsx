@@ -2,12 +2,28 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
 import { api } from '../services/api';
-import { db } from '../services/storage';
 import { AppSettings, Category, CategoryType } from '../types';
 import { Save, CheckCircle2, ListChecks, Plus, Trash2, X, CheckCircle, Loader2, AlertCircle, Pencil } from 'lucide-react';
 
 export const Settings = () => {
-  const [settings, setSettings] = useState<AppSettings>(db.getSettings());
+  const [settings, setSettings] = useState<AppSettings>({ currency: 'EUR', taxYear: new Date().getFullYear() });
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  // Load settings from backend API
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        setLoadingSettings(true);
+        const loadedSettings = await api.getSettings();
+        setSettings(loadedSettings);
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+    loadSettings();
+  }, []);
   const [categories, setCategories] = useState<Category[]>([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryType, setNewCategoryType] = useState<CategoryType>(CategoryType.EXPENSE);
@@ -164,9 +180,14 @@ export const Settings = () => {
       // googleDriveFolderId: formData.get('googleDriveFolderId') as string,
       taxYear: Number(formData.get('taxYear')),
     };
-    db.saveSettings(newSettings);
-    setSettings(newSettings);
-    setMsg('General settings updated.');
+    try {
+      await api.updateSettings(newSettings);
+      setSettings(newSettings);
+      setMsg('General settings updated.');
+    } catch (error) {
+      console.error('Failed to update settings:', error);
+      setMsg('Failed to update settings.');
+    }
     setTimeout(() => setMsg(''), 3000);
   };
 

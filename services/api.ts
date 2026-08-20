@@ -1,6 +1,7 @@
 /**
  * API Client - All backend communication goes through here
- * Replaces localStorage with backend API calls
+ * Uses HTTP-only cookies for authentication (JWT tokens)
+ * Replaces localStorage with cookie-based auth
  */
 
 import {
@@ -22,40 +23,27 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api';
 
 /**
- * Get authentication token from localStorage
- */
-function getAuthToken(): string | null {
-  return localStorage.getItem('authToken');
-}
-
-/**
- * Make authenticated API request
+ * Make authenticated API request using HTTP-only cookies
+ * All requests automatically include credentials for JWT cookies
  */
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getAuthToken();
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
+  // Default to include credentials (for HTTP-only cookies)
+  const defaultOptions: RequestInit = {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, defaultOptions);
 
   if (response.status === 401) {
     // Token expired or invalid - redirect to login
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('authExpiry');
     window.location.href = '/#/login';
     throw new Error('Unauthorized');
   }
@@ -72,6 +60,7 @@ async function apiRequest<T>(
 
 /**
  * API Service - All backend operations
+ * Note: No Authorization header needed - uses HTTP-only cookies
  */
 export const api = {
   // ============================================================================
@@ -241,12 +230,8 @@ export const api = {
     if (propertyId) formData.append('propertyId', propertyId.toString());
     if (notes) formData.append('notes', notes);
 
-    const token = getAuthToken();
     const response = await fetch(`${API_BASE_URL}/documents/analyze`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       credentials: 'include',
       body: formData,
     });

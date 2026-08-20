@@ -1,43 +1,30 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../components/AuthProvider';
 
 export const Login = () => {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter both username and password');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api'}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        // Store token in localStorage
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('authExpiry', data.expiresAt);
-        
-        // Redirect to dashboard
-        navigate('/');
-      } else {
-        setError(data.error || 'Authentication failed');
-      }
-    } catch (err) {
-      setError('Failed to connect to server. Please check if the server is running.');
-      console.error('Login error:', err);
-    } finally {
+      await login(username, password);
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed');
       setLoading(false);
     }
   };
@@ -70,6 +57,36 @@ export const Login = () => {
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '1rem' }}>
             <label 
+              htmlFor="username"
+              style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                fontWeight: '500',
+                color: '#555',
+              }}
+            >
+              Username
+            </label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '1rem',
+                boxSizing: 'border-box',
+              }}
+              placeholder="Enter your username"
+            />
+          </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <label 
               htmlFor="password"
               style={{
                 display: 'block',
@@ -86,7 +103,6 @@ export const Login = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoFocus
               style={{
                 width: '100%',
                 padding: '0.75rem',
@@ -115,26 +131,26 @@ export const Login = () => {
 
           <button
             type="submit"
-            disabled={loading || !password}
+            disabled={loading || !username.trim() || !password.trim()}
             style={{
               width: '100%',
               padding: '0.75rem',
-              backgroundColor: loading || !password ? '#ccc' : '#4CAF50',
+              backgroundColor: loading || !username.trim() || !password.trim() ? '#ccc' : '#4CAF50',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
               fontSize: '1rem',
               fontWeight: '600',
-              cursor: loading || !password ? 'not-allowed' : 'pointer',
+              cursor: loading || !username.trim() || !password.trim() ? 'not-allowed' : 'pointer',
               transition: 'background-color 0.2s',
             }}
             onMouseOver={(e) => {
-              if (!loading && password) {
+              if (!loading && username.trim() && password.trim()) {
                 (e.target as HTMLButtonElement).style.backgroundColor = '#45a049';
               }
             }}
             onMouseOut={(e) => {
-              if (!loading && password) {
+              if (!loading && username.trim() && password.trim()) {
                 (e.target as HTMLButtonElement).style.backgroundColor = '#4CAF50';
               }
             }}

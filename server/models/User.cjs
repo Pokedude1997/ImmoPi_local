@@ -24,10 +24,8 @@ const dbPath = process.env.NODE_ENV === 'test'
 // Create database connection pool
 const db = new sqlite3.Database(dbPath);
 
-// Enable foreign keys
- db.configure({ 
-   "foreign_keys": true 
- });
+// Enable foreign keys (SQLite3 v4+ uses db.configure, v3 uses PRAGMA)
+db.exec('PRAGMA foreign_keys = ON');
 
 /**
  * Find user by username

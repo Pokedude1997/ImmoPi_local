@@ -120,7 +120,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Apply userScope middleware to all /api routes
-// authenticate is applied per-route in each route file
+// userScope now handles skipping /api/auth routes internally
 app.use('/api', userScope);
 
 // Serve static files from root directory for frontend, but exclude /api routes
@@ -392,7 +392,7 @@ db.serialize(() => {
 // AUTHENTICATION (New JWT-based system)
 // ============================================================================
 
-// Use new auth routes (these handle their own auth)
+// Use new auth routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', requireAuth, requireAdmin, userRoutes);
 
@@ -477,12 +477,20 @@ app.get('/api/properties', requireAuth, (req, res) => {
 });
 
 app.get('/api/properties/:id', requireAuth, (req, res) => {
-  db.get('SELECT * FROM properties WHERE id = ?', [req.params.id], (err, row) => {
+  // Apply user filter to the query
+  const { query, params } = addUserFilter('SELECT * FROM properties WHERE id = ?', req);
+  
+  db.get(query, [...params, req.params.id], (err, row) => {
     if (err) {
       logError(err, { context: 'GET /api/properties/:id', propertyId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     if (!row) return res.status(404).json({ error: 'Property not found' });
+    
+    // Verify ownership for non-admin users
+    if (!verifyOwnership(row, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only view your own properties' });
+    }
     
     // Transform flat mortgage columns to nested mortgage object
     const hasMortgage = row.mortgage_loanAmount !== null && row.mortgage_loanAmount !== undefined;
@@ -514,13 +522,16 @@ app.post('/api/properties', requireAuth, validatePropertyCreation, (req, res) =>
   const { name, address, type, purchasePrice, purchaseDate, rentAmount, size, mortgage, notes } = req.validatedBody;
   const m = mortgage || {};
   
+  // Add user_id to the data
+  const userId = req.userId;
+  
   db.run(
     `INSERT INTO properties (name, address, type, purchasePrice, purchaseDate, rentAmount, size,
       mortgage_loanAmount, mortgage_startDate, mortgage_interestRate, mortgage_principalRate,
-      mortgage_bankName, mortgage_paymentTiming, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      mortgage_bankName, mortgage_paymentTiming, notes, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [name, address, type, purchasePrice, purchaseDate, rentAmount, size,
-      m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes],
+      m.loanAmount, m.startDate, m.interestRate, m.principalRate, m.bankName, m.paymentTiming, notes, userId],
     function(err) {
       if (err) {
         logError(err, { context: 'POST /api/properties', user: req.user?.id });
@@ -564,7 +575,7 @@ app.put('/api/properties/:id', requireAuth, validatePropertyUpdate, (req, res) =
   const m = mortgage || {};
   const propertyId = req.params.id;
   
-  // First, fetch the old property data to check if mortgage data changed
+  // First, fetch the old property data to check if mortgage data changed and verify ownership
   db.get('SELECT * FROM properties WHERE id = ?', [propertyId], (fetchErr, oldPropertyRow) => {
     if (fetchErr) {
       logError(fetchErr, { context: 'PUT /api/properties - fetch old property', propertyId, user: req.user?.id });
@@ -573,6 +584,11 @@ app.put('/api/properties/:id', requireAuth, validatePropertyUpdate, (req, res) =
     
     if (!oldPropertyRow) {
       return res.status(404).json({ error: 'Property not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(oldPropertyRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own properties' });
     }
     
     // Perform the update
@@ -628,12 +644,30 @@ app.put('/api/properties/:id', requireAuth, validatePropertyUpdate, (req, res) =
 });
 
 app.delete('/api/properties/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM properties WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      logError(err, { context: 'DELETE /api/properties/:id', propertyId: req.params.id, user: req.user?.id });
+  // First verify ownership
+  db.get('SELECT * FROM properties WHERE id = ?', [req.params.id], (fetchErr, propertyRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/properties/:id - fetch property', propertyId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ success: true });
+    
+    if (!propertyRow) {
+      return res.status(404).json({ error: 'Property not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(propertyRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own properties' });
+    }
+    
+    // Proceed with deletion
+    db.run('DELETE FROM properties WHERE id = ?', [req.params.id], function(err) {
+      if (err) {
+        logError(err, { context: 'DELETE /api/properties/:id', propertyId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
@@ -696,26 +730,62 @@ app.put('/api/tenants/:id', requireAuth, (req, res) => {
   const firstName = nameParts[0] || '';
   const lastName = nameParts[1] || '';
   
-  db.run(
-    'UPDATE tenants SET firstName=?, lastName=?, property_id=?, leaseStart=?, leaseEnd=?, isCurrent=?, notes=? WHERE id=?',
-    [firstName, lastName, propertyId, startDate, endDate, isCurrent ? 1 : 0, notes, req.params.id],
-    function(err) {
-      if (err) {
-        logError(err, { context: 'PUT /api/tenants/:id', tenantId: req.params.id, user: req.user?.id });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      res.json({ success: true });
+  // First verify ownership
+  db.get('SELECT * FROM tenants WHERE id = ?', [req.params.id], (fetchErr, tenantRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'PUT /api/tenants/:id - fetch tenant', tenantId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    
+    if (!tenantRow) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(tenantRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own tenants' });
+    }
+    
+    // Proceed with update
+    db.run(
+      'UPDATE tenants SET firstName=?, lastName=?, property_id=?, leaseStart=?, leaseEnd=?, isCurrent=?, notes=? WHERE id=?',
+      [firstName, lastName, propertyId, startDate, endDate, isCurrent ? 1 : 0, notes, req.params.id],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'PUT /api/tenants/:id', tenantId: req.params.id, user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
 app.delete('/api/tenants/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM tenants WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      logError(err, { context: 'database operation' });
+  // First verify ownership
+  db.get('SELECT * FROM tenants WHERE id = ?', [req.params.id], (fetchErr, tenantRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/tenants/:id - fetch tenant', tenantId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ success: true });
+    
+    if (!tenantRow) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(tenantRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own tenants' });
+    }
+    
+    // Proceed with deletion
+    db.run('DELETE FROM tenants WHERE id = ?', [req.params.id], function(err) {
+      if (err) {
+        logError(err, { context: 'DELETE /api/tenants/:id', tenantId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
@@ -724,9 +794,11 @@ app.delete('/api/tenants/:id', requireAuth, (req, res) => {
 // ============================================================================
 
 app.get('/api/categories', requireAuth, (req, res) => {
-  db.all('SELECT * FROM categories', [], (err, rows) => {
+  const { query, params } = addUserFilter('SELECT * FROM categories', req);
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'database operation', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     // Normalize ID to string and type to frontend format for frontend consistency
@@ -742,11 +814,13 @@ app.get('/api/categories', requireAuth, (req, res) => {
 
 app.post('/api/categories', requireAuth, (req, res) => {
   const { name, type, isTaxRelevant } = req.body;
-  db.run('INSERT INTO categories (name, type, isTaxRelevant) VALUES (?, ?, ?)',
-    [name, normalizeTypeForDB(type), isTaxRelevant ? 1 : 0],
+  const data = addUserIdToData({ name, type: normalizeTypeForDB(type), isTaxRelevant: isTaxRelevant ? 1 : 0 }, req);
+  
+  db.run('INSERT INTO categories (name, type, isTaxRelevant, user_id) VALUES (?, ?, ?, ?)',
+    [data.name, data.type, data.isTaxRelevant, data.user_id],
     function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'database operation', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       res.json({ id: this.lastID });
@@ -755,50 +829,80 @@ app.post('/api/categories', requireAuth, (req, res) => {
 });
 
 app.put('/api/categories/:id', requireAuth, (req, res) => {
+  const categoryId = req.params.id;
   const { name, type, isTaxRelevant } = req.body;
-  db.run('UPDATE categories SET name=?, type=?, isTaxRelevant=? WHERE id=?',
-    [name, normalizeTypeForDB(type), isTaxRelevant ? 1 : 0, req.params.id],
-    function(err) {
-      if (err) {
-        logError(err, { context: 'database operation' });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      res.json({ success: true });
+  
+  // Verify ownership first
+  db.get('SELECT user_id FROM categories WHERE id = ?', [categoryId], (err, category) => {
+    if (err) {
+      logError(err, { context: 'PUT /api/categories/:id', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    if (!verifyOwnership(category, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own categories' });
+    }
+    
+    db.run('UPDATE categories SET name=?, type=?, isTaxRelevant=? WHERE id=?',
+      [name, normalizeTypeForDB(type), isTaxRelevant ? 1 : 0, categoryId],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'database operation', user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
 app.delete('/api/categories/:id', requireAuth, (req, res) => {
   const categoryId = req.params.id;
 
-  // Check if category is in use in any related tables
-  db.get(
-    'SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?) + ' +
-    '(SELECT COUNT(*) FROM recurring_payments WHERE category_id = ?) + ' +
-    '(SELECT COUNT(*) FROM documents WHERE category_id = ?) as totalUses',
-    [categoryId, categoryId, categoryId],
-    (err, row) => {
-      if (err) {
-        logError(err, { context: 'database operation' });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
+  // Verify ownership first
+  db.get('SELECT user_id FROM categories WHERE id = ?', [categoryId], (ownershipErr, category) => {
+    if (ownershipErr) {
+      logError(ownershipErr, { context: 'DELETE /api/categories/:id', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    if (!verifyOwnership(category, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own categories' });
+    }
 
-      if (row.totalUses > 0) {
-        return res.status(400).json({
-          error: 'Cannot delete category: it is used in existing transactions, recurring payments, or documents'
-        });
-      }
-
-      db.run('DELETE FROM categories WHERE id = ?', [categoryId], function(err) {
+    // Check if category is in use in any related tables
+    db.get(
+      'SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?) + ' +
+      '(SELECT COUNT(*) FROM recurring_payments WHERE category_id = ?) + ' +
+      '(SELECT COUNT(*) FROM documents WHERE category_id = ?) as totalUses',
+      [categoryId, categoryId, categoryId],
+      (err, row) => {
         if (err) {
-          logError(err, { context: 'database operation' });
+          logError(err, { context: 'database operation', user: req.user?.id });
           return res.status(500).json({ error: 'Internal server error' });
         }
-        if (this.changes === 0) return res.status(404).json({ error: 'Category not found' });
-        res.json({ success: true });
-      });
-    }
-  );
+
+        if (row.totalUses > 0) {
+          return res.status(400).json({
+            error: 'Cannot delete category: it is used in existing transactions, recurring payments, or documents'
+          });
+        }
+
+        db.run('DELETE FROM categories WHERE id = ?', [categoryId], function(err) {
+          if (err) {
+            logError(err, { context: 'database operation', user: req.user?.id });
+            return res.status(500).json({ error: 'Internal server error' });
+          }
+          if (this.changes === 0) return res.status(404).json({ error: 'Category not found' });
+          res.json({ success: true });
+        });
+      }
+    );
+  });
 });
 
 // ============================================================================
@@ -806,9 +910,12 @@ app.delete('/api/categories/:id', requireAuth, (req, res) => {
 // ============================================================================
 
 app.get('/api/transactions', requireAuth, (req, res) => {
-  db.all('SELECT * FROM transactions ORDER BY date DESC', [], (err, rows) => {
+  // Apply user filter to the query
+  const { query, params } = addUserFilter('SELECT * FROM transactions ORDER BY date DESC', req);
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'GET /api/transactions', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     // Map and normalize ID fields to strings and type to frontend format for frontend consistency
@@ -832,12 +939,16 @@ app.get('/api/transactions', requireAuth, (req, res) => {
 
 app.post('/api/transactions', requireAuth, (req, res) => {
   const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
+  
+  // Add user_id to the data
+  const userId = req.userId;
+  
   db.run(
-    'INSERT INTO transactions (date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [date, amount, currency || 'EUR', description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id],
+    'INSERT INTO transactions (date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [date, amount, currency || 'EUR', description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id, userId],
     function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'POST /api/transactions', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       res.json({ id: this.lastID });
@@ -847,26 +958,63 @@ app.post('/api/transactions', requireAuth, (req, res) => {
 
 app.put('/api/transactions/:id', requireAuth, (req, res) => {
   const { date, amount, currency, description, type, property_id, category_id, counterparty_id, document_id } = req.body;
-  db.run(
-    'UPDATE transactions SET date=?, amount=?, currency=?, description=?, type=?, property_id=?, category_id=?, counterparty_id=?, document_id=? WHERE id=?',
-    [date, amount, currency, description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id, req.params.id],
-    function(err) {
-      if (err) {
-        logError(err, { context: 'database operation' });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      res.json({ success: true });
+  
+  // First verify ownership
+  db.get('SELECT * FROM transactions WHERE id = ?', [req.params.id], (fetchErr, transactionRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'PUT /api/transactions/:id - fetch transaction', transactionId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    
+    if (!transactionRow) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(transactionRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own transactions' });
+    }
+    
+    // Proceed with update
+    db.run(
+      'UPDATE transactions SET date=?, amount=?, currency=?, description=?, type=?, property_id=?, category_id=?, counterparty_id=?, document_id=? WHERE id=?',
+      [date, amount, currency, description, normalizeTypeForDB(type), property_id, category_id, counterparty_id, document_id, req.params.id],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'PUT /api/transactions/:id', transactionId: req.params.id, user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
 app.delete('/api/transactions/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      logError(err, { context: 'database operation' });
+  // First verify ownership
+  db.get('SELECT * FROM transactions WHERE id = ?', [req.params.id], (fetchErr, transactionRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/transactions/:id - fetch transaction', transactionId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ success: true });
+    
+    if (!transactionRow) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(transactionRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own transactions' });
+    }
+    
+    // Proceed with deletion
+    db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], function(err) {
+      if (err) {
+        logError(err, { context: 'DELETE /api/transactions/:id', transactionId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
@@ -875,9 +1023,11 @@ app.delete('/api/transactions/:id', requireAuth, (req, res) => {
 // ============================================================================
 
 app.get('/api/counterparties', requireAuth, (req, res) => {
-  db.all('SELECT * FROM counterparties', [], (err, rows) => {
+  const { query, params } = addUserFilter('SELECT * FROM counterparties', req);
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'database operation', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     // Normalize ID to string for frontend consistency
@@ -891,12 +1041,14 @@ app.get('/api/counterparties', requireAuth, (req, res) => {
 
 app.post('/api/counterparties', requireAuth, (req, res) => {
   const { name, type, contactPerson, email, phone, address, notes } = req.body;
+  const data = addUserIdToData({ name, type, contactPerson, email, phone, address, notes }, req);
+  
   db.run(
-    'INSERT INTO counterparties (name, type, contactPerson, email, phone, address, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [name, type, contactPerson, email, phone, address, notes],
+    'INSERT INTO counterparties (name, type, contactPerson, email, phone, address, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [data.name, data.type, data.contactPerson, data.email, data.phone, data.address, data.notes, data.user_id],
     function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'database operation', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       res.json({ id: this.lastID });
@@ -905,27 +1057,59 @@ app.post('/api/counterparties', requireAuth, (req, res) => {
 });
 
 app.put('/api/counterparties/:id', requireAuth, (req, res) => {
+  const counterpartyId = req.params.id;
   const { name, type, contactPerson, email, phone, address, notes } = req.body;
-  db.run(
-    'UPDATE counterparties SET name=?, type=?, contactPerson=?, email=?, phone=?, address=?, notes=? WHERE id=?',
-    [name, type, contactPerson, email, phone, address, notes, req.params.id],
-    function(err) {
-      if (err) {
-        logError(err, { context: 'database operation' });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      res.json({ success: true });
+  
+  // Verify ownership first
+  db.get('SELECT user_id FROM counterparties WHERE id = ?', [counterpartyId], (err, counterparty) => {
+    if (err) {
+      logError(err, { context: 'PUT /api/counterparties/:id', user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    if (!counterparty) {
+      return res.status(404).json({ error: 'Counterparty not found' });
+    }
+    if (!verifyOwnership(counterparty, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own counterparties' });
+    }
+    
+    db.run(
+      'UPDATE counterparties SET name=?, type=?, contactPerson=?, email=?, phone=?, address=?, notes=? WHERE id=?',
+      [name, type, contactPerson, email, phone, address, notes, counterpartyId],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'database operation', user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
 app.delete('/api/counterparties/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM counterparties WHERE id = ?', [req.params.id], function(err) {
+  const counterpartyId = req.params.id;
+  
+  // Verify ownership first
+  db.get('SELECT user_id FROM counterparties WHERE id = ?', [counterpartyId], (err, counterparty) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'DELETE /api/counterparties/:id', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ success: true });
+    if (!counterparty) {
+      return res.status(404).json({ error: 'Counterparty not found' });
+    }
+    if (!verifyOwnership(counterparty, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own counterparties' });
+    }
+    
+    db.run('DELETE FROM counterparties WHERE id = ?', [counterpartyId], function(err) {
+      if (err) {
+        logError(err, { context: 'database operation', user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
@@ -946,9 +1130,12 @@ function ensureValidDate(dateValue) {
 }
 
 app.get('/api/recurring-payments', requireAuth, (req, res) => {
-  db.all('SELECT * FROM recurring_payments', [], (err, rows) => {
+  // Apply user filter to the query
+  const { query, params } = addUserFilter('SELECT * FROM recurring_payments', req);
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'GET /api/recurring-payments', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     // Map database snake_case field names to frontend camelCase expectations
@@ -975,12 +1162,16 @@ app.get('/api/recurring-payments', requireAuth, (req, res) => {
 
 app.post('/api/recurring-payments', requireAuth, (req, res) => {
   const { name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive } = req.body;
+  
+  // Add user_id to the data
+  const userId = req.userId;
+  
   db.run(
-    'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [name, amount, currency || 'EUR', frequency, startDate, endDate, nextDueDate || startDate, category_id, property_id, counterparty_id, isActive ? 1 : 0],
+    'INSERT INTO recurring_payments (name, amount, currency, frequency, startDate, endDate, nextDueDate, category_id, property_id, counterparty_id, isActive, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, amount, currency || 'EUR', frequency, startDate, endDate, nextDueDate || startDate, category_id, property_id, counterparty_id, isActive ? 1 : 0, userId],
     function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'POST /api/recurring-payments', user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       
@@ -1021,15 +1212,20 @@ app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
   const isActiveValue = isActive !== undefined ? isActive : active;
   const recurringPaymentId = req.params.id;
   
-  // First, fetch the old recurring payment data to check if parameters changed
+  // First, fetch the old recurring payment data to check if parameters changed and verify ownership
   db.get('SELECT * FROM recurring_payments WHERE id = ?', [recurringPaymentId], (fetchErr, oldPaymentRow) => {
     if (fetchErr) {
-      logError(fetchErr, { context: 'PUT /api/recurring-payments - fetch old payment', recurringPaymentId });
+      logError(fetchErr, { context: 'PUT /api/recurring-payments - fetch old payment', recurringPaymentId, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     
     if (!oldPaymentRow) {
       return res.status(404).json({ error: 'Recurring payment not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(oldPaymentRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own recurring payments' });
     }
     
     // Perform the update
@@ -1080,12 +1276,30 @@ app.put('/api/recurring-payments/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/recurring-payments/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM recurring_payments WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      logError(err, { context: 'database operation' });
+  // First verify ownership
+  db.get('SELECT * FROM recurring_payments WHERE id = ?', [req.params.id], (fetchErr, paymentRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/recurring-payments/:id - fetch payment', paymentId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ success: true });
+    
+    if (!paymentRow) {
+      return res.status(404).json({ error: 'Recurring payment not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(paymentRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own recurring payments' });
+    }
+    
+    // Proceed with deletion
+    db.run('DELETE FROM recurring_payments WHERE id = ?', [req.params.id], function(err) {
+      if (err) {
+        logError(err, { context: 'DELETE /api/recurring-payments/:id', paymentId: req.params.id, user: req.user?.id });
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ success: true });
+    });
   });
 });
 
@@ -1124,9 +1338,22 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
 // ============================================================================
 
 app.get('/api/documents', requireAuth, (req, res) => {
-  db.all('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id ORDER BY d.upload_date DESC', [], (err, rows) => {
+  // Apply user filter to the query - need to handle JOIN properly
+  // For JOIN queries, we filter on the documents table
+  let query = 'SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id';
+  const params = [];
+  
+  // Add user filter for documents table
+  if (!req.isAdmin && !req.canBypassUserFilter && req.userId) {
+    query += ' WHERE d.user_id = ?';
+    params.push(req.userId);
+  }
+  
+  query += ' ORDER BY d.upload_date DESC';
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'GET /api/documents', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     // Map and normalize ID fields to strings for frontend consistency
@@ -1146,12 +1373,28 @@ app.get('/api/documents', requireAuth, (req, res) => {
 });
 
 app.get('/api/documents/:id', requireAuth, (req, res) => {
-  db.get('SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id WHERE d.id = ?', [req.params.id], (err, row) => {
+  // Apply user filter to the query
+  let query = 'SELECT d.*, p.name as property_name FROM documents d LEFT JOIN properties p ON d.property_id = p.id WHERE d.id = ?';
+  const params = [req.params.id];
+  
+  // Add user filter for documents table
+  if (!req.isAdmin && !req.canBypassUserFilter && req.userId) {
+    query += ' AND d.user_id = ?';
+    params.push(req.userId);
+  }
+  
+  db.get(query, params, (err, row) => {
     if (err) {
-      logError(err, { context: 'database operation' });
+      logError(err, { context: 'GET /api/documents/:id', documentId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     if (!row) return res.status(404).json({ error: 'Document not found' });
+    
+    // Verify ownership for non-admin users
+    if (!verifyOwnership(row, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only view your own documents' });
+    }
+    
     // row.driveLink = row.google_drive_id ? getDocumentLink(row.google_drive_id) : null;
     row.driveLink = null;
     res.json(row);
@@ -1160,8 +1403,9 @@ app.get('/api/documents/:id', requireAuth, (req, res) => {
 
 app.delete('/api/documents/:id', requireAuth, async (req, res) => {
   try {
-    /* const doc = await new Promise((resolve, reject) => {
-      db.get('SELECT google_drive_id FROM documents WHERE id = ?', [req.params.id], (err, row) => {
+    // First verify ownership
+    const doc = await new Promise((resolve, reject) => {
+      db.get('SELECT * FROM documents WHERE id = ?', [req.params.id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -1169,7 +1413,12 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
 
     if (!doc) return res.status(404).json({ error: 'Document not found' });
 
-    // Delete from Google Drive
+    // Verify ownership
+    if (!verifyOwnership(doc, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own documents' });
+    }
+
+    /* // Delete from Google Drive
     if (doc.google_drive_id) {
       await deleteDocument(doc.google_drive_id);
     } */
@@ -1177,12 +1426,13 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
     // Delete from database
     db.run('DELETE FROM documents WHERE id = ?', [req.params.id], function(err) {
       if (err) {
-        logError(err, { context: 'database operation' });
+        logError(err, { context: 'DELETE /api/documents/:id', documentId: req.params.id, user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       res.json({ success: true });
     });
   } catch (error) {
+    logError(error, { context: 'DELETE /api/documents/:id', documentId: req.params.id, user: req.user?.id });
     res.status(500).json({ error: error.message });
   }
 });
@@ -1376,7 +1626,10 @@ function mapTenantContract(row) {
 
 // GET /api/tenant-contracts - List all contracts
 app.get('/api/tenant-contracts', requireAuth, (req, res) => {
-  db.all('SELECT * FROM tenant_contracts', [], (err, rows) => {
+  // Apply user filter to the query
+  const { query, params } = addUserFilter('SELECT * FROM tenant_contracts', req);
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
       logError(err, { context: 'GET /api/tenant-contracts', user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
@@ -1388,7 +1641,10 @@ app.get('/api/tenant-contracts', requireAuth, (req, res) => {
 
 // GET /api/tenant-contracts/:id - Get specific contract
 app.get('/api/tenant-contracts/:id', requireAuth, (req, res) => {
-  db.get('SELECT * FROM tenant_contracts WHERE id = ?', [req.params.id], (err, row) => {
+  // Apply user filter to the query
+  const { query, params } = addUserFilter('SELECT * FROM tenant_contracts WHERE id = ?', req);
+  
+  db.get(query, [...params, req.params.id], (err, row) => {
     if (err) {
       logError(err, { context: 'GET /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
@@ -1396,6 +1652,12 @@ app.get('/api/tenant-contracts/:id', requireAuth, (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Tenant contract not found' });
     }
+    
+    // Verify ownership for non-admin users
+    if (!verifyOwnership(row, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only view your own contracts' });
+    }
+    
     res.json(mapTenantContract(row));
   });
 });
@@ -1440,13 +1702,16 @@ app.post('/api/tenant-contracts', requireAuth, validateTenantContractCreation, a
   // Calculate warm rent
   const warmRent = calculateWarmRent(coldRent, sideCosts);
   
+  // Add user_id to the data
+  const userId = req.userId;
+  
   db.run(
     `INSERT INTO tenant_contracts (
       tenant_id, property_id, start_date, end_date, cold_rent, side_costs, 
-      payment_day_of_month, is_active, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      payment_day_of_month, is_active, notes, user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [tenantId, propertyId, startDate, endDate, coldRent, sideCosts, 
-     paymentDayOfMonth, isActive ? 1 : 0, notes],
+     paymentDayOfMonth, isActive ? 1 : 0, notes, userId],
     function(err) {
       if (err) {
         logError(err, { context: 'POST /api/tenant-contracts', user: req.user?.id });
@@ -1505,15 +1770,20 @@ app.put('/api/tenant-contracts/:id', requireAuth, validateTenantContractUpdate, 
           paymentDayOfMonth, isActive, notes } = req.validatedBody;
   const contractId = req.params.id;
   
-  // First, fetch the old contract data for change detection
+  // First, fetch the old contract data for change detection and verify ownership
   db.get('SELECT * FROM tenant_contracts WHERE id = ?', [contractId], (fetchErr, oldContractRow) => {
     if (fetchErr) {
-      logError(fetchErr, { context: 'PUT /api/tenant-contracts/:id - fetch old contract', contractId });
+      logError(fetchErr, { context: 'PUT /api/tenant-contracts/:id - fetch old contract', contractId, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     
     if (!oldContractRow) {
       return res.status(404).json({ error: 'Tenant contract not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(oldContractRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own contracts' });
     }
     
     // Validate that tenant and property exist if they are being updated
@@ -1599,30 +1869,47 @@ app.put('/api/tenant-contracts/:id', requireAuth, validateTenantContractUpdate, 
 
 // DELETE /api/tenant-contracts/:id - Delete contract
 app.delete('/api/tenant-contracts/:id', requireAuth, (req, res) => {
-  // First check if contract has rent payments
-  db.all('SELECT id FROM rent_payments WHERE tenant_contract_id = ?', [req.params.id], (err, rows) => {
-    if (err) {
-      logError(err, { context: 'DELETE /api/tenant-contracts/:id check', contractId: req.params.id, user: req.user?.id });
+  // First verify ownership
+  db.get('SELECT * FROM tenant_contracts WHERE id = ?', [req.params.id], (fetchErr, contractRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/tenant-contracts/:id - fetch contract', contractId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     
-    if (rows && rows.length > 0) {
-      return res.status(400).json({
-        error: 'Cannot delete contract with existing rent payments',
-        count: rows.length
-      });
+    if (!contractRow) {
+      return res.status(404).json({ error: 'Tenant contract not found' });
     }
     
-    // Safe to delete
-    db.run('DELETE FROM tenant_contracts WHERE id = ?', [req.params.id], function(err) {
+    // Verify ownership
+    if (!verifyOwnership(contractRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own contracts' });
+    }
+    
+    // First check if contract has rent payments
+    db.all('SELECT id FROM rent_payments WHERE tenant_contract_id = ?', [req.params.id], (err, rows) => {
       if (err) {
-        logError(err, { context: 'DELETE /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
+        logError(err, { context: 'DELETE /api/tenant-contracts/:id check', contractId: req.params.id, user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Tenant contract not found' });
+      
+      if (rows && rows.length > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete contract with existing rent payments',
+          count: rows.length
+        });
       }
-      res.json({ success: true });
+      
+      // Safe to delete
+      db.run('DELETE FROM tenant_contracts WHERE id = ?', [req.params.id], function(err) {
+        if (err) {
+          logError(err, { context: 'DELETE /api/tenant-contracts/:id', contractId: req.params.id, user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'Tenant contract not found' });
+        }
+        res.json({ success: true });
+      });
     });
   });
 });
@@ -1631,18 +1918,25 @@ app.delete('/api/tenant-contracts/:id', requireAuth, (req, res) => {
 app.get('/api/tenants/:tenantId/contracts', requireAuth, (req, res) => {
   const tenantId = parseInt(req.params.tenantId, 10);
   
-  // Validate that tenant exists (IDOR protection)
-  db.get('SELECT id FROM tenants WHERE id = ?', [tenantId], (err, row) => {
+  // Validate that tenant exists and verify ownership (IDOR protection)
+  db.get('SELECT id, user_id FROM tenants WHERE id = ?', [tenantId], (err, tenantRow) => {
     if (err) {
       logError(err, { context: 'GET /api/tenants/:tenantId/contracts', tenantId: req.params.tenantId, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
     }
     
-    if (!row) {
+    if (!tenantRow) {
       return res.status(404).json({ error: `Tenant with ID ${tenantId} not found` });
     }
     
-    db.all('SELECT * FROM tenant_contracts WHERE tenant_id = ?', [tenantId], (err, rows) => {
+    // Verify ownership
+    if (!req.isAdmin && !req.canBypassUserFilter) {
+      if (tenantRow.user_id !== req.userId) {
+        return res.status(403).json({ error: 'Forbidden - you can only view contracts for your own tenants' });
+      }
+    }
+    
+    db.all('SELECT * FROM tenant_contracts WHERE tenant_id = ? AND user_id = ?', [tenantId, req.userId], (err, rows) => {
       if (err) {
         logError(err, { context: 'GET /api/tenants/:tenantId/contracts', tenantId: req.params.tenantId, user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
@@ -1682,12 +1976,18 @@ app.get('/api/rent-payments', requireAuth, (req, res) => {
   let query = 'SELECT * FROM rent_payments';
   const params = [];
   
+  // Add user filter
+  if (!req.isAdmin && !req.canBypassUserFilter && req.userId) {
+    query += ' WHERE user_id = ?';
+    params.push(req.userId);
+  }
+  
   // Build WHERE clause based on query params
   if (tenantId) {
-    query += ' WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE tenant_id = ?)';
-    params.push(tenantId);
+    query += (query.includes('WHERE') ? ' AND' : ' WHERE') + ' tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE tenant_id = ? AND user_id = ?)';
+    params.push(tenantId, req.userId);
   } else if (contractId) {
-    query += ' WHERE tenant_contract_id = ?';
+    query += (query.includes('WHERE') ? ' AND' : ' WHERE') + ' tenant_contract_id = ?';
     params.push(contractId);
   }
   
@@ -1711,7 +2011,17 @@ app.get('/api/rent-payments', requireAuth, (req, res) => {
 
 // GET /api/rent-payments/:id - Get specific payment
 app.get('/api/rent-payments/:id', requireAuth, (req, res) => {
-  db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (err, row) => {
+  // Apply user filter to the query
+  let query = 'SELECT * FROM rent_payments WHERE id = ?';
+  const params = [req.params.id];
+  
+  // Add user filter
+  if (!req.isAdmin && !req.canBypassUserFilter && req.userId) {
+    query += ' AND user_id = ?';
+    params.push(req.userId);
+  }
+  
+  db.get(query, params, (err, row) => {
     if (err) {
       logError(err, { context: 'GET /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
       return res.status(500).json({ error: 'Internal server error' });
@@ -1719,6 +2029,12 @@ app.get('/api/rent-payments/:id', requireAuth, (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Rent payment not found' });
     }
+    
+    // Verify ownership for non-admin users
+    if (!verifyOwnership(row, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only view your own rent payments' });
+    }
+    
     res.json(mapRentPayment(row));
   });
 });
@@ -1731,6 +2047,19 @@ app.post('/api/rent-payments', requireAuth, validateRentPaymentCreation, async (
   } = req.validatedBody;
   
   try {
+    // Get contract details to verify ownership
+    const contract = await getTenantContractById(parseInt(tenantContractId, 10));
+    if (!contract) {
+      return res.status(404).json({ error: `Contract with ID ${tenantContractId} not found` });
+    }
+    
+    // Verify ownership of the contract
+    if (!req.isAdmin && !req.canBypassUserFilter) {
+      if (contract.user_id !== req.userId) {
+        return res.status(403).json({ error: 'Forbidden - you can only create payments for your own contracts' });
+      }
+    }
+    
     // Check for duplicate payment
     const isDuplicate = await checkRentPaymentDuplicate(tenantContractId, date);
     if (isDuplicate) {
@@ -1740,10 +2069,6 @@ app.post('/api/rent-payments', requireAuth, validateRentPaymentCreation, async (
     }
     
     // Get contract details to create linked transaction
-    const contract = await getTenantContractById(parseInt(tenantContractId, 10));
-    if (!contract) {
-      return res.status(404).json({ error: `Contract with ID ${tenantContractId} not found` });
-    }
     
     // Calculate warm rent
     const warmRent = amount || (coldRentAmount + sideCostsAmount);
@@ -1831,64 +2156,122 @@ app.put('/api/rent-payments/:id', requireAuth, validateRentPaymentUpdate, (req, 
   const { tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
           status, paymentMethod, transactionId, notes } = req.validatedBody;
   
-  db.run(
-    `UPDATE rent_payments SET
-      tenant_contract_id = ?, date = ?, amount = ?, cold_rent_amount = ?, 
-      side_costs_amount = ?, status = ?, payment_method = ?, 
-      transaction_id = ?, notes = ?
-    WHERE id = ?`,
-    [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
-     status, paymentMethod, transactionId, notes, req.params.id],
-    function(err) {
+  // First verify ownership
+  db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (fetchErr, paymentRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'PUT /api/rent-payments/:id - fetch payment', paymentId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+    if (!paymentRow) {
+      return res.status(404).json({ error: 'Rent payment not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(paymentRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only edit your own rent payments' });
+    }
+    
+    // Proceed with update
+    db.run(
+      `UPDATE rent_payments SET
+        tenant_contract_id = ?, date = ?, amount = ?, cold_rent_amount = ?, 
+        side_costs_amount = ?, status = ?, payment_method = ?, 
+        transaction_id = ?, notes = ?
+      WHERE id = ?`,
+      [tenantContractId, date, amount, coldRentAmount, sideCostsAmount,
+       status, paymentMethod, transactionId, notes, req.params.id],
+      function(err) {
+        if (err) {
+          logError(err, { context: 'PUT /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'Rent payment not found' });
+        }
+        // Fetch updated payment to return
+        db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (err2, row) => {
+          if (err2) {
+            logError(err2, { context: 'PUT /api/rent-payments/:id fetch', paymentId: req.params.id });
+            return res.status(500).json({ error: 'Internal server error' });
+          }
+          res.json(mapRentPayment(row));
+        });
+      }
+    );
+  });
+});
+
+// DELETE /api/rent-payments/:id - Delete payment
+app.delete('/api/rent-payments/:id', requireAuth, (req, res) => {
+  // First verify ownership
+  db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (fetchErr, paymentRow) => {
+    if (fetchErr) {
+      logError(fetchErr, { context: 'DELETE /api/rent-payments/:id - fetch payment', paymentId: req.params.id, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+    if (!paymentRow) {
+      return res.status(404).json({ error: 'Rent payment not found' });
+    }
+    
+    // Verify ownership
+    if (!verifyOwnership(paymentRow, req)) {
+      return res.status(403).json({ error: 'Forbidden - you can only delete your own rent payments' });
+    }
+    
+    // Proceed with deletion
+    db.run('DELETE FROM rent_payments WHERE id = ?', [req.params.id], function(err) {
       if (err) {
-        logError(err, { context: 'PUT /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
+        logError(err, { context: 'DELETE /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
         return res.status(500).json({ error: 'Internal server error' });
       }
       if (this.changes === 0) {
         return res.status(404).json({ error: 'Rent payment not found' });
       }
-      // Fetch updated payment to return
-      db.get('SELECT * FROM rent_payments WHERE id = ?', [req.params.id], (err2, row) => {
-        if (err2) {
-          logError(err2, { context: 'PUT /api/rent-payments/:id fetch', paymentId: req.params.id });
-          return res.status(500).json({ error: 'Internal server error' });
-        }
-        res.json(mapRentPayment(row));
-      });
-    }
-  );
-});
-
-// DELETE /api/rent-payments/:id - Delete payment
-app.delete('/api/rent-payments/:id', requireAuth, (req, res) => {
-  db.run('DELETE FROM rent_payments WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      logError(err, { context: 'DELETE /api/rent-payments/:id', paymentId: req.params.id, user: req.user?.id });
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Rent payment not found' });
-    }
-    res.json({ success: true });
+      res.json({ success: true });
+    });
   });
 });
 
 // GET /api/tenants/:tenantId/rent-payments - Payments for specific tenant
 app.get('/api/tenants/:tenantId/rent-payments', requireAuth, (req, res) => {
-  db.all(
-    `SELECT rp.* FROM rent_payments rp
-     JOIN tenant_contracts tc ON rp.tenant_contract_id = tc.id
-     WHERE tc.tenant_id = ?`,
-    [req.params.tenantId],
-    (err, rows) => {
-      if (err) {
-        logError(err, { context: 'GET /api/tenants/:tenantId/rent-payments', tenantId: req.params.tenantId, user: req.user?.id });
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      const mappedRows = rows.map(mapRentPayment);
-      res.json(mappedRows);
+  const tenantId = parseInt(req.params.tenantId, 10);
+  
+  // Validate that tenant exists and verify ownership (IDOR protection)
+  db.get('SELECT id, user_id FROM tenants WHERE id = ?', [tenantId], (err, tenantRow) => {
+    if (err) {
+      logError(err, { context: 'GET /api/tenants/:tenantId/rent-payments', tenantId: req.params.tenantId, user: req.user?.id });
+      return res.status(500).json({ error: 'Internal server error' });
     }
-  );
+    
+    if (!tenantRow) {
+      return res.status(404).json({ error: `Tenant with ID ${tenantId} not found` });
+    }
+    
+    // Verify ownership
+    if (!req.isAdmin && !req.canBypassUserFilter) {
+      if (tenantRow.user_id !== req.userId) {
+        return res.status(403).json({ error: 'Forbidden - you can only view payments for your own tenants' });
+      }
+    }
+    
+    // Query payments for this tenant's contracts
+    db.all(
+      `SELECT rp.* FROM rent_payments rp
+       JOIN tenant_contracts tc ON rp.tenant_contract_id = tc.id
+       WHERE tc.tenant_id = ? AND rp.user_id = ?`,
+      [tenantId, req.userId],
+      (err, rows) => {
+        if (err) {
+          logError(err, { context: 'GET /api/tenants/:tenantId/rent-payments', tenantId: req.params.tenantId, user: req.user?.id });
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+        const mappedRows = rows.map(mapRentPayment);
+        res.json(mappedRows);
+      }
+    );
+  });
 });
 
 // GET /api/tenant-contracts/:contractId/rent-payments - Payments for specific contract
@@ -1896,16 +2279,23 @@ app.get('/api/tenant-contracts/:contractId/rent-payments', requireAuth, async (r
   try {
     const contractId = parseInt(req.params.contractId, 10);
     
-    // Validate that contract exists (IDOR protection)
+    // Validate that contract exists (IDOR protection) and verify ownership
     const contract = await getTenantContractById(contractId);
     if (!contract) {
       return res.status(404).json({ error: `Contract with ID ${contractId} not found` });
     }
     
+    // Verify ownership
+    if (!req.isAdmin && !req.canBypassUserFilter) {
+      if (contract.user_id !== req.userId) {
+        return res.status(403).json({ error: 'Forbidden - you can only view payments for your own contracts' });
+      }
+    }
+    
     const rows = await new Promise((resolve, reject) => {
       db.all(
-        'SELECT * FROM rent_payments WHERE tenant_contract_id = ?',
-        [contractId],
+        'SELECT * FROM rent_payments WHERE tenant_contract_id = ? AND user_id = ?',
+        [contractId, req.userId],
         (err, result) => {
           if (err) reject(err);
           else resolve(result);

@@ -240,6 +240,20 @@ function requireAdmin(req, res, next) {
  * Admin users bypass the filter
  */
 function userScope(req, res, next) {
+  // Skip userScope for auth and users routes
+  // When mounted via app.use('/api', ...), req.path is relative
+  // For example: /api/auth/login -> req.path = '/auth/login'
+  // For example: /api/users -> req.path = '/users'
+  const relativePath = req.path;
+  const fullPath = req.originalUrl;
+  
+  if (relativePath.startsWith('/auth') || 
+      relativePath.startsWith('/users') ||
+      fullPath.startsWith('/api/auth') || 
+      fullPath.startsWith('/api/users')) {
+    return next();
+  }
+  
   // Check if user is authenticated
   if (!req.user) {
     return res.status(401).json({
@@ -265,16 +279,22 @@ function userScope(req, res, next) {
  * @param {Object} req - Express request object
  * @returns {string} SQL WHERE clause for user filtering
  */
+/**
+ * Get user filter SQL clause and parameters for parameterized queries
+ * Returns object with query fragment and params array to prevent SQL injection
+ * @param {Object} req - Express request object
+ * @returns {Object} Object with query string and params array
+ */
 function getUserFilter(req) {
   if (!req.userId) {
-    return '';
+    return { query: '', params: [] };
   }
   
   if (req.canBypassUserFilter || req.isAdmin) {
-    return ''; // Admin can see all data
+    return { query: '', params: [] }; // Admin can see all data
   }
   
-  return ` WHERE user_id = ${req.userId}`;
+  return { query: ' WHERE user_id = ?', params: [req.userId] };
 }
 
 /**

@@ -28,6 +28,7 @@ const User = require(path.resolve(serverPath, 'models', 'User.cjs'));
 
 // Load auth middleware
 const {
+  authenticate,
   setAccessTokenCookie,
   setRefreshTokenCookie,
   clearAuthCookies,
@@ -42,7 +43,7 @@ const LOGIN_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
  * POST /api/auth/login
  * Authenticate user and set JWT tokens in cookies
  */
-router.post('/api/auth/login', async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
@@ -127,7 +128,7 @@ router.post('/api/auth/login', async (req, res) => {
  * POST /api/auth/logout
  * Clear authentication cookies
  */
-router.post('/api/auth/logout', (req, res) => {
+router.post('/logout', (req, res) => {
   try {
     clearAuthCookies(res);
     return res.json({
@@ -147,7 +148,7 @@ router.post('/api/auth/logout', (req, res) => {
  * POST /api/auth/refresh
  * Refresh access token using refresh token
  */
-router.post('/api/auth/refresh', async (req, res) => {
+router.post('/refresh', async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
     
@@ -195,7 +196,7 @@ router.post('/api/auth/refresh', async (req, res) => {
  * GET /api/auth/me
  * Get current authenticated user info
  */
-router.get('/api/auth/me', (req, res) => {
+router.get('/me', authenticate, (req, res) => {
   try {
     // User should be attached by authenticate middleware
     if (!req.user) {
@@ -227,7 +228,7 @@ router.get('/api/auth/me', (req, res) => {
  * GET /api/auth/check
  * Check if current session is valid (compatibility with old auth system)
  */
-router.get('/api/auth/check', (req, res) => {
+router.get('/check', authenticate, (req, res) => {
   try {
     if (!req.user) {
       return res.status(401).json({

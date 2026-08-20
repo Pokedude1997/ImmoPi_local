@@ -14,6 +14,8 @@ import {
   RefreshCcw
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useAuth } from './AuthProvider';
+import { UserMenu } from './UserMenu';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -38,6 +40,7 @@ const NavItem = ({ to, icon: Icon, label }: { to: string; icon: any; label: stri
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setSidebarOpen] = React.useState(false);
+  const { isAdmin } = useAuth();
 
   return (
     <div className="min-h-screen flex bg-slate-50">
@@ -75,7 +78,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <NavItem to="/tenants" icon={Users} label="Tenants" />
           <NavItem to="/reports" icon={FileBarChart2} label="Reports" />
           <div className="pt-4 mt-4 border-t border-slate-100">
-            <NavItem to="/settings" icon={Settings} label="Settings" />
+            {isAdmin && <NavItem to="/settings" icon={Settings} label="Settings" />}
           </div>
         </nav>
       </aside>
@@ -94,6 +97,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="flex-1 p-4 lg:p-10 max-w-7xl mx-auto w-full">
           {children}
         </div>
+        <UserMenu />
       </main>
     </div>
   );

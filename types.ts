@@ -169,3 +169,10 @@ export interface AppSettings {
   currency: string;
   taxYear: number;
 }
+
+// User type for authentication
+export interface User {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+}

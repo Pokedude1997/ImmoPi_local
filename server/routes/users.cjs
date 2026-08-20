@@ -23,7 +23,7 @@ const { requireAuth, requireAdmin } = require(path.resolve(serverPath, 'middlewa
  * GET /api/users
  * List all users (admin only)
  */
-router.get('/api/users', requireAuth, requireAdmin, async (req, res) => {
+router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const users = await User.getAll();
     
@@ -48,7 +48,7 @@ router.get('/api/users', requireAuth, requireAdmin, async (req, res) => {
  * POST /api/users
  * Create new user (admin only)
  */
-router.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { username, password, isAdmin } = req.body;
     
@@ -92,7 +92,7 @@ router.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
  * GET /api/users/:id
  * Get user by ID (admin only, or self)
  */
-router.get('/api/users/:id', requireAuth, async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     
@@ -138,7 +138,7 @@ router.get('/api/users/:id', requireAuth, async (req, res) => {
  * PUT /api/users/:id
  * Update user (admin only, or self for profile updates)
  */
-router.put('/api/users/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     
@@ -197,7 +197,7 @@ router.put('/api/users/:id', requireAuth, async (req, res) => {
  * Delete user (admin only)
  * CASCADE will delete all user data
  */
-router.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     
@@ -244,7 +244,7 @@ router.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
  * Self-registration endpoint (if enabled)
  * Regular users can register themselves
  */
-router.post('/api/users/register', async (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     // Check if registration is enabled (could be controlled by settings)
     const REGISTRATION_ENABLED = process.env.ALLOW_REGISTRATION === 'true';

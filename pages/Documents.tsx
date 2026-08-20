@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select } from '../components/ui';
 import { api } from '../services/api';
-import { db } from '../services/storage';
+// import { db } from '../services/storage';
 // import { analyzeDocumentWithGemini, AIAnalysisResult } from '../services/geminiService';
 import { AppDocument, DocumentType, Property, Category, CategoryType } from '../types';
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -102,22 +102,14 @@ export const Documents = () => {
       // googleDriveId: 'mock-drive-id-' + Math.random(), // Mock
     };
 
-    const savedDoc = db.saveDocument(newDoc);
+    // TODO: Implement document creation via API
+    // The backend doesn't have a direct POST /api/documents endpoint
+    // Documents are created through /api/documents/analyze which requires file upload
+    // For now, document creation via form is disabled
+    // const savedDoc = await api.createDocument(newDoc); // This endpoint doesn't exist
     
-    // Auto-create transaction option? For now just save doc.
-    if (confirm("Document saved! Do you want to create a linked Transaction automatically?")) {
-      const selectedCategory = categories.find(c => c.id === newDoc.categoryId);
-      await api.createTransaction({
-        type: selectedCategory?.type || CategoryType.EXPENSE,
-        propertyId: newDoc.propertyId || properties[0]?.id || '',
-        categoryId: newDoc.categoryId || categories[0].id,
-        amount: newDoc.amount || 0,
-        currency: newDoc.currency,
-        date: newDoc.documentDate || new Date().toISOString(),
-        description: newDoc.notes || `Transaction for ${newDoc.fileName}`,
-        documentId: savedDoc.id
-      });
-    }
+    // Show message that document upload via file is required
+    alert("Please use the file upload feature to save documents. Form-based document creation is not yet implemented.");
 
     const updatedDocs = await api.getDocuments();
     setDocuments(updatedDocs);
