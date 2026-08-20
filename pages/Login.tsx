@@ -167,6 +167,14 @@ export const Login = () => {
         }}>
           🔒 Local authentication for your privacy
         </p>
+        <p style={{
+          marginTop: '0.5rem',
+          textAlign: 'center',
+          fontSize: '0.85rem',
+          color: '#666',
+        }}>
+          Don't have an account? <a href="/#/register" style={{ color: '#007bff', textDecoration: 'none' }}>Register here</a>
+        </p>
       </div>
     </div>
   );

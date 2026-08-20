@@ -12,12 +12,14 @@ import { Settings } from './pages/Settings';
 import { Tenants } from './pages/Tenants';
 import { Reports } from './pages/Reports';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 
 const AppContent = () => {
   return (
     <Routes>
-      {/* Public route */}
+      {/* Public routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       
       {/* Protected routes */}
       <Route

@@ -256,4 +256,61 @@ router.get('/check', authenticate, (req, res) => {
   }
 });
 
+/**
+ * POST /api/auth/register
+ * Register a new user
+ */
+router.post('/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Username and password are required',
+      });
+    }
+    
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Password must be at least 8 characters',
+      });
+    }
+    
+    // Check if username already exists (case-insensitive)
+    const existingUser = await User.findByUsernameCaseInsensitive(username);
+    if (existingUser) {
+      return res.status(409).json({
+        error: 'Conflict',
+        message: 'Username already exists',
+      });
+    }
+    
+    // Create new user (non-admin by default)
+    const newUser = await User.create(username, password, false);
+    
+    // Auto-login the user after registration
+    setAccessTokenCookie(res, newUser.id, newUser.username, newUser.isAdmin);
+    setRefreshTokenCookie(res, newUser.id);
+    
+    return res.json({
+      success: true,
+      message: 'Registration successful',
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        isAdmin: newUser.isAdmin,
+      },
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error.message);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'An error occurred during registration',
+    });
+  }
+});
+
 module.exports = router;

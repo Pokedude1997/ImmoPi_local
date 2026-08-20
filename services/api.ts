@@ -327,6 +327,19 @@ export const api = {
   },
 
   // ============================================================================
+  // AUTHENTICATION
+  // ============================================================================
+  async register(username: string, password: string): Promise<{ success: boolean; message: string; user: { id: number; username: string; isAdmin: boolean } }> {
+    return apiRequest<{ success: boolean; message: string; user: { id: number; username: string; isAdmin: boolean } }>('/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
+  // ============================================================================
   // AUTOMATION
   // ============================================================================
   async triggerMortgageAutomation(): Promise<{ success: boolean; logs: string[]; count: number; error?: string }> {

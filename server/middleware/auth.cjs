@@ -25,7 +25,7 @@ const REFRESH_TOKEN_COOKIE = 'refreshToken';
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in production
-  sameSite: 'strict',
+  sameSite: 'lax', // Allow cross-site cookies for development (localhost:3000 -> 192.168.1.18:8000)
   maxAge: 15 * 60 * 1000, // 15 minutes for access token
   path: '/',
 };
