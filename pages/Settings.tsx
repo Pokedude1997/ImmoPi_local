@@ -172,7 +172,7 @@ export const Settings = () => {
     }
   };
 
-  const handleSaveGeneral = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveGeneral = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const newSettings: AppSettings = {
