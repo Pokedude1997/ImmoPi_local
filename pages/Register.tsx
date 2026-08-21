@@ -11,21 +11,44 @@ export const Register = () => {
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
 
+  // Validation states
+  const usernameValid = /^[a-zA-Z0-9_]{3,32}$/.test(username);
+  const usernameTouched = username.length > 0;
+  const passwordValid = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/.test(password);
+  const passwordTouched = password.length > 0;
   const passwordsMatch = password === passwordConfirm && password.length > 0;
+
+  // Error messages for validation
+  const getUsernameError = () => {
+    if (!usernameTouched) return '';
+    if (username.length < 3 || username.length > 32) return 'Username must be 3-32 characters';
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) return 'Username can only contain letters, numbers, and underscores';
+    return '';
+  };
+
+  const getPasswordError = () => {
+    if (!passwordTouched) return '';
+    if (password.length < 8) return 'Password must be at least 8 characters';
+    if (!/(?=.*[a-z])/.test(password)) return 'Password must contain at least one lowercase letter';
+    if (!/(?=.*[A-Z])/.test(password)) return 'Password must contain at least one uppercase letter';
+    if (!/(?=.*\d)/.test(password)) return 'Password must contain at least one number';
+    if (!/(?=.*[!@#$%^&*])/.test(password)) return 'Password must contain at least one special character (!@#$%^&*)';
+    return '';
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    if (!username.trim()) {
-      setError('Please enter a username');
+    if (!usernameValid) {
+      setError(getUsernameError() || 'Please enter a valid username');
       setLoading(false);
       return;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (!passwordValid) {
+      setError(getPasswordError() || 'Please enter a valid password');
       setLoading(false);
       return;
     }
@@ -110,13 +133,18 @@ export const Register = () => {
                   style={{
                     width: '100%',
                     padding: '0.75rem',
-                    border: '1px solid #ddd',
+                    border: `1px solid ${usernameTouched && !usernameValid ? '#fcc' : '#ddd'}`,
                     borderRadius: '4px',
                     fontSize: '1rem',
                     boxSizing: 'border-box',
                   }}
-                  placeholder="Choose a username"
+                  placeholder="Choose a username (3-32 chars, letters/numbers/_)"
                 />
+                {usernameTouched && !usernameValid && (
+                  <p style={{ fontSize: '0.8rem', color: '#c33', marginTop: '0.25rem', marginBottom: 0 }}>
+                    {getUsernameError()}
+                  </p>
+                )}
               </div>
 
               <div style={{ marginBottom: '1rem' }}>
@@ -137,20 +165,19 @@ export const Register = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={8}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
-                    border: `1px solid ${password.length > 0 && password.length < 8 ? '#fcc' : '#ddd'}`,
+                    border: `1px solid ${passwordTouched && !passwordValid ? '#fcc' : '#ddd'}`,
                     borderRadius: '4px',
                     fontSize: '1rem',
                     boxSizing: 'border-box',
                   }}
-                  placeholder="Enter password (min 8 characters)"
+                  placeholder="Enter password (min 8 chars, uppercase, lowercase, number, special char)"
                 />
-                {password.length > 0 && password.length < 8 && (
+                {passwordTouched && !passwordValid && (
                   <p style={{ fontSize: '0.8rem', color: '#c33', marginTop: '0.25rem', marginBottom: 0 }}>
-                    Password must be at least 8 characters
+                    {getPasswordError()}
                   </p>
                 )}
               </div>
@@ -211,17 +238,17 @@ export const Register = () => {
 
               <button
                 type="submit"
-                disabled={loading || !username.trim() || !passwordsMatch || password.length < 8}
+                disabled={loading || !usernameValid || !passwordValid || !passwordsMatch}
                 style={{
                   width: '100%',
                   padding: '0.75rem',
-                  backgroundColor: loading || !username.trim() || !passwordsMatch || password.length < 8 ? '#ccc' : '#007bff',
+                  backgroundColor: loading || !usernameValid || !passwordValid || !passwordsMatch ? '#ccc' : '#007bff',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
                   fontSize: '1rem',
                   fontWeight: '600',
-                  cursor: loading || !username.trim() || !passwordsMatch || password.length < 8 ? 'not-allowed' : 'pointer',
+                  cursor: loading || !usernameValid || !passwordValid || !passwordsMatch ? 'not-allowed' : 'pointer',
                 }}
               >
                 {loading ? 'Registering...' : 'Register'}
