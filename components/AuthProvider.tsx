@@ -23,10 +23,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // API base URL
-const API_BASE_URL = import.meta.env.VITE_API_URL;
-if (!API_BASE_URL) {
-  throw new Error('VITE_API_URL environment variable is required');
-}
+// Note: In production, VITE_API_URL should be set via environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api';
 
 // Auth provider component
 interface AuthProviderProps {
