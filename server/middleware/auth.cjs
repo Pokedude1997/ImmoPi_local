@@ -22,13 +22,16 @@ const ACCESS_TOKEN_COOKIE = 'accessToken';
 const REFRESH_TOKEN_COOKIE = 'refreshToken';
 
 // Cookie options
+// Note: In production, domain should be set explicitly. In development,
+// cookies will be set for the exact host:port (192.168.1.18:8000) by default.
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in production
-  sameSite: 'lax', // Allow cross-site cookies for development (localhost:3000 -> 192.168.1.18:8000)
+  sameSite: 'lax', // Allow cross-site cookies for development
   maxAge: 15 * 60 * 1000, // 15 minutes for access token
   path: '/',
-  domain: '192.168.1.18', // Allow cookies across all ports on this IP (3000, 8000, etc.)
+  // For production: add domain: '.yourdomain.com'
+  // For development with proxy: cookies set for the proxied host
 };
 
 const REFRESH_COOKIE_OPTIONS = {
