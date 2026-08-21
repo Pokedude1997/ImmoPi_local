@@ -8,10 +8,12 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        // For development with hot-reload: Use immopi.local in /etc/hosts
+        // Then access via http://immopi.local:3000
         proxy: {
           '/api': {
-            target: 'http://192.168.1.18:8000',
-            changeOrigin: true,  // Change host header to target for proper cookie domain
+            target: 'http://immopi.local:8000',
+            changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api/, ''),
           },
         },

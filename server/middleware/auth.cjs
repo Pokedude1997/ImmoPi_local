@@ -22,16 +22,15 @@ const ACCESS_TOKEN_COOKIE = 'accessToken';
 const REFRESH_TOKEN_COOKIE = 'refreshToken';
 
 // Cookie options
-// Note: In production, domain should be set explicitly. In development,
-// cookies will be set for the exact host:port (192.168.1.18:8000) by default.
+// Use domain for development with immopi.local DNS name
+// In production, use your actual domain (e.g., '.yourdomain.com')
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in production
   sameSite: 'lax', // Allow cross-site cookies for development
   maxAge: 15 * 60 * 1000, // 15 minutes for access token
   path: '/',
-  // For production: add domain: '.yourdomain.com'
-  // For development with proxy: cookies set for the proxied host
+  domain: '.immopi.local', // DNS-based domain for development with hot-reload
 };
 
 const REFRESH_COOKIE_OPTIONS = {
