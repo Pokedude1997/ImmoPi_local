@@ -28,6 +28,7 @@ const COOKIE_OPTIONS = {
   sameSite: 'lax', // Allow cross-site cookies for development (localhost:3000 -> 192.168.1.18:8000)
   maxAge: 15 * 60 * 1000, // 15 minutes for access token
   path: '/',
+  domain: '192.168.1.18', // Allow cookies across all ports on this IP (3000, 8000, etc.)
 };
 
 const REFRESH_COOKIE_OPTIONS = {

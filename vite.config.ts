@@ -11,7 +11,8 @@ export default defineConfig(({ mode }) => {
         proxy: {
           '/api': {
             target: 'http://192.168.1.18:8000',
-            changeOrigin: true,
+            changeOrigin: false,  // Preserve original host header for proper cookie domain
+            rewrite: (path) => path.replace(/^\/api/, ''),
           },
         },
       },
