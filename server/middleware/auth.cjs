@@ -55,7 +55,10 @@ function setAccessTokenCookie(res, userId, username, isAdmin) {
  */
 function setRefreshTokenCookie(res, userId) {
   const jwt = require(path.resolve(serverPath, 'node_modules', 'jsonwebtoken'));
-  const token = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET || 'fallback_refresh_secret_change_in_production', { expiresIn: '7d' });
+  if (!process.env.JWT_REFRESH_SECRET) {
+    throw new Error('JWT_REFRESH_SECRET environment variable is required');
+  }
+  const token = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
   res.cookie(REFRESH_TOKEN_COOKIE, token, REFRESH_COOKIE_OPTIONS);
   return token;
 }

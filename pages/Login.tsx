@@ -173,7 +173,7 @@ export const Login = () => {
           fontSize: '0.85rem',
           color: '#666',
         }}>
-          Don't have an account? <a href="/#/register" style={{ color: '#007bff', textDecoration: 'none' }}>Register here</a>
+          Don't have an account? <Link to="/register" style={{ color: '#007bff', textDecoration: 'none' }}>Register here</Link>
         </p>
       </div>
     </div>

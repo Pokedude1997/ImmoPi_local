@@ -19,8 +19,11 @@ import {
   PaymentMethod,
 } from '../types';
 
-// Use environment variable for API base URL, fallback to static IP
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.18:8000/api';
+// Use environment variable for API base URL
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+if (!API_BASE_URL) {
+  throw new Error('VITE_API_URL environment variable is required');
+}
 
 /**
  * Make authenticated API request using HTTP-only cookies

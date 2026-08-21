@@ -256,6 +256,11 @@ router.get('/check', authenticate, (req, res) => {
   }
 });
 
+// Rate limiting for registration endpoint
+const registerAttempts = new Map();
+const MAX_REGISTER_ATTEMPTS = 5;
+const REGISTER_ATTEMPT_WINDOW = 15 * 60 * 1000; // 15 minutes
+
 /**
  * POST /api/auth/register
  * Register a new user
@@ -264,17 +269,54 @@ router.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     
+    // Rate limiting check
+    const ip = req.ip || req.connection.remoteAddress;
+    const attempts = registerAttempts.get(ip) || { count: 0, lastAttempt: 0 };
+    
+    if (attempts.count >= MAX_REGISTER_ATTEMPTS && 
+        Date.now() - attempts.lastAttempt < REGISTER_ATTEMPT_WINDOW) {
+      return res.status(429).json({
+        error: 'Too Many Requests',
+        message: 'Too many registration attempts. Please try again later.',
+      });
+    }
+    
     if (!username || !password) {
+      // Record failed attempt
+      registerAttempts.set(ip, {
+        count: attempts.count + 1,
+        lastAttempt: Date.now(),
+      });
       return res.status(400).json({
         error: 'Bad Request',
         message: 'Username and password are required',
       });
     }
     
-    if (password.length < 8) {
+    // Validate username: 3-32 characters, alphanumeric + underscore only
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+      // Record failed attempt
+      registerAttempts.set(ip, {
+        count: attempts.count + 1,
+        lastAttempt: Date.now(),
+      });
       return res.status(400).json({
         error: 'Bad Request',
-        message: 'Password must be at least 8 characters',
+        message: 'Username must be 3-32 characters and contain only letters, numbers, and underscores',
+      });
+    }
+    
+    // Validate password complexity: at least one uppercase, one lowercase, one number, one special character
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      // Record failed attempt
+      registerAttempts.set(ip, {
+        count: attempts.count + 1,
+        lastAttempt: Date.now(),
+      });
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (!@#$%^&*)',
       });
     }
     
@@ -286,6 +328,9 @@ router.post('/register', async (req, res) => {
         message: 'Username already exists',
       });
     }
+    
+    // Reset failed attempts on successful registration
+    registerAttempts.delete(ip);
     
     // Create new user (non-admin by default)
     const newUser = await User.create(username, password, false);
